@@ -40,7 +40,7 @@ import androidx.media3.common.Player
 import com.sparky.iptv.R
 import com.sparky.iptv.player.PlayerHolder
 import com.sparky.iptv.player.TrackHelper
-import androidx.media3.common.C
+import androidx.media3.common.C as MediaC
 import com.sparky.iptv.ui.components.Label
 import com.sparky.iptv.ui.AppViewModel
 import com.sparky.iptv.ui.PlayRequest
@@ -269,8 +269,8 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
 private fun TrackPanel(vm: AppViewModel, channelKey: String, tick: Int, onChanged: () -> Unit, modifier: Modifier = Modifier) {
     val ctx = LocalContext.current
     val player = remember { PlayerHolder.get(ctx) }
-    val audio = remember(tick) { TrackHelper.options(player, C.TRACK_TYPE_AUDIO) }
-    val subs = remember(tick) { TrackHelper.options(player, C.TRACK_TYPE_TEXT) }
+    val audio = remember(tick) { TrackHelper.options(player, MediaC.TRACK_TYPE_AUDIO) }
+    val subs = remember(tick) { TrackHelper.options(player, MediaC.TRACK_TYPE_TEXT) }
     val subsOn = remember(tick) { TrackHelper.subtitlesOn(player) }
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(80); runCatching { first.requestFocus() } }
@@ -296,7 +296,7 @@ private fun TrackPanel(vm: AppViewModel, channelKey: String, tick: Int, onChange
         }
         if (audio.size > 1) audio.forEachIndexed { i, o ->
             TrackRow(o.label, o.selected, if (i == 0) Modifier.focusRequester(first) else Modifier) {
-                TrackHelper.select(player, C.TRACK_TYPE_AUDIO, o)
+                TrackHelper.select(player, MediaC.TRACK_TYPE_AUDIO, o)
                 saveChoice(o.language, null)
                 onChanged()
             }
@@ -313,7 +313,7 @@ private fun TrackPanel(vm: AppViewModel, channelKey: String, tick: Int, onChange
         }
         subs.forEach { o ->
             TrackRow(o.label, subsOn && o.selected) {
-                TrackHelper.select(player, C.TRACK_TYPE_TEXT, o)
+                TrackHelper.select(player, MediaC.TRACK_TYPE_TEXT, o)
                 saveChoice(null, o.language ?: "")
                 onChanged()
             }
