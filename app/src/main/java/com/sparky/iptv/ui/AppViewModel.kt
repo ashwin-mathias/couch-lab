@@ -25,6 +25,8 @@ import com.sparky.iptv.data.Movie
 import com.sparky.iptv.data.MovieInfo
 import com.sparky.iptv.data.Prefs
 import com.sparky.iptv.data.Progress
+import com.sparky.iptv.data.Names
+import com.sparky.iptv.data.RecentItem
 import com.sparky.iptv.data.Repository
 import com.sparky.iptv.data.Series
 import com.sparky.iptv.data.SeriesInfo
@@ -45,12 +47,13 @@ sealed interface Screen {
     data object Home : Screen
     data object About : Screen
     data object Diagnostics : Screen
+    data class Regions(val firstRun: Boolean) : Screen
     data class MovieDetail(val movie: Movie) : Screen
     data class SeriesDetail(val series: Series) : Screen
     data class Player(val request: PlayRequest) : Screen
 }
 
-enum class Section { LIVE, GUIDE, MOVIES, SERIES, SEARCH, SETTINGS }
+enum class Section { HOME, LIVE, GUIDE, FAVORITES, RECENT, MOVIES, SERIES, SEARCH, SETTINGS }
 
 sealed interface PlayRequest {
     data class Live(val channels: List<Channel>, val index: Int) : PlayRequest
@@ -61,6 +64,38 @@ data class VodItem(val key: String, val title: String, val subtitle: String, val
 
 const val GROUP_FAV = "__fav"
 const val GROUP_ALL = "__all"
+const val GROUP_RECENT = "__recent"
+const val GROUP_ACTION_ALL_REGIONS = "__toggle_regions"
+
+enum class GroupKind { GROUP, HEADER, ACTION }
+
+/** One row in a group list: a channel group, a region heading, or an action. */
+data class GroupItem(val id: String, val name: String, val count: Int, val kind: GroupKind = GroupKind.GROUP)
+
+data class RegionInfo(val code: String, val label: String, val channels: Int)
+
+/** Lookups derived from the library: which region each category belongs to, cleaned names, counts. */
+class LiveIndex(lib: Library) {
+    val catRegion: Map<String, String> = lib.liveCats.associate { it.id to (Names.region(it.name) ?: Names.OTHER) }
+    val catName: Map<String, String> = lib.liveCats.associate { it.id to Names.strip(it.name) }
+    val vodRegion: Map<String, String> = lib.vodCats.associate { it.id to (Names.region(it.name) ?: Names.OTHER) }
+    val seriesRegion: Map<String, String> = lib.seriesCats.associate { it.id to (Names.region(it.name) ?: Names.OTHER) }
+    val countByCat: Map<String, Int> = lib.channels.asSequence().filter { !it.divider }.groupingBy { it.categoryId }.eachCount()
+    val regions: List<RegionInfo> = run {
+        val counts = HashMap<String, Int>()
+        for ((cat, n) in countByCat) {
+            val r = catRegion[cat] ?: Names.OTHER
+            counts[r] = (counts[r] ?: 0) + n
+        }
+        counts.map { (code, n) -> RegionInfo(code, Names.regionLabel(code), n) }.sortedByDescending { it.channels }
+    }
+
+    fun regionOfChannel(ch: Channel): String = catRegion[ch.categoryId] ?: Names.OTHER
+
+    companion object {
+        val EMPTY = LiveIndex(Library.EMPTY)
+    }
+}
 const val CAT_RECENT = "__recent"
 const val CAT_FAV = "__fav"
 const val CAT_ALL = "__all"
@@ -72,9 +107,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val stack = mutableStateListOf<Screen>()
     val current: Screen get() = stack.lastOrNull() ?: Screen.Loading
 
-    var section by mutableStateOf(Section.LIVE)
+    var section by mutableStateOf(Section.HOME)
     var library by mutableStateOf(Library.EMPTY)
         private set
+    var index by mutableStateOf(LiveIndex.EMPTY)
+        private set
+
+    private fun setLib(lib: Library) {
+        library = lib
+        index = LiveIndex(lib)
+    }
     var loadError by mutableStateOf<String?>(null)
         private set
     var refreshing by mutableStateOf(false)
@@ -139,18 +181,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
             val cached = try { repo.loadCached() } catch (t: Throwable) { AppLog.e("Saved library unreadable", t); null }
             if (cached != null && !cached.isEmpty) {
-                library = cached
+                setLib(cached)
                 AppLog.i("Opened saved library: ${cached.channels.size} channels, ${cached.movies.size} movies, ${cached.series.size} series")
                 resetTo(Screen.Home)
-                refreshInBackground()
+                maybeDailyRefresh()
                 checkForUpdate()
+                maybePromptRegions()
             } else {
                 if (hasSaved) { loadSteps.clear(); loadSteps.addAll(repo.stepsFor(prefs.playlist)) }
                 try {
                     refreshing = true
-                    library = repo.refresh(stepListener)
+                    setLib(repo.refresh(stepListener))
+                    prefs.lastRefresh = System.currentTimeMillis()
                     resetTo(Screen.Home)
                     checkForUpdate()
+                    maybePromptRegions()
                 } catch (t: Throwable) {
                     if (t is kotlinx.coroutines.CancellationException) throw t
                     AppLog.e("Loading failed", t)
@@ -170,7 +215,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             refreshing = true
             try {
-                library = repo.refresh()
+                setLib(repo.refresh())
+                prefs.lastRefresh = System.currentTimeMillis()
                 if (showToast) toast = "Playlist updated"
             } catch (t: Throwable) {
                 if (t is kotlinx.coroutines.CancellationException) throw t
@@ -250,7 +296,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         prefs.liveFormat = acct.liveFormat
                         repo.clearCache()
                         epg.clear(); epgFetchedAt.clear()
-                        library = Library.EMPTY
+                        setLib(Library.EMPTY)
                         resetTo(Screen.Loading)
                         load()
                         delay(3000)
@@ -292,41 +338,154 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ---------- lists ----------
+    // ---------- regions ----------
+    var myRegions by mutableStateOf(prefs.myRegions())
+        private set
+
+    /** Temporarily show every region (from the bottom of the group list). */
+    var showAllRegions by mutableStateOf(false)
+
+    fun regionVisible(code: String) = showAllRegions || myRegions.isEmpty() || code in myRegions
+
+    fun toggleRegion(code: String) {
+        val next = myRegions.toMutableSet()
+        if (!next.add(code)) next.remove(code)
+        myRegions = next
+        prefs.saveMyRegions(next)
+        val special = setOf(GROUP_FAV, GROUP_ALL, GROUP_RECENT)
+        if (liveGroup !in special && !regionVisible(index.catRegion[liveGroup] ?: Names.OTHER)) liveGroup = GROUP_ALL
+    }
+
+    fun resetRegions() {
+        myRegions = emptySet()
+        prefs.saveMyRegions(emptySet())
+    }
+
+    private fun maybePromptRegions() {
+        if (prefs.regionsPrompted) return
+        prefs.regionsPrompted = true
+        if (index.regions.size >= 4) push(Screen.Regions(firstRun = true))
+    }
+
+    /** Group list for Live TV and the guide: Favorites, Recent, All, then each visible region's groups. */
+    fun groupItems(): List<GroupItem> {
+        val idx = index
+        val favCount = library.channels.count { it.favKey in favorites }
+        val recentCount = recents.count { it.type == "live" }
+        val out = ArrayList<GroupItem>()
+        out.add(GroupItem(GROUP_FAV, "Favorites", favCount))
+        out.add(GroupItem(GROUP_RECENT, "Recently watched", recentCount))
+        val allLabel = if (myRegions.isEmpty() || showAllRegions) "All channels" else "All my channels"
+        out.add(GroupItem(GROUP_ALL, allLabel, idx.regions.filter { regionVisible(it.code) }.sumOf { it.channels }))
+        val byRegion = library.liveCats.groupBy { idx.catRegion[it.id] ?: Names.OTHER }
+        val codes = idx.regions.map { it.code }.filter { regionVisible(it) }
+        // Your chosen regions come first.
+        val order = if (myRegions.isEmpty()) codes else codes.sortedBy { if (it in myRegions) 0 else 1 }
+        for (code in order) {
+            val cats = byRegion[code].orEmpty().filter { (idx.countByCat[it.id] ?: 0) > 0 }
+            if (cats.isEmpty()) continue
+            out.add(GroupItem("hdr:$code", Names.regionLabel(code), cats.sumOf { idx.countByCat[it.id] ?: 0 }, GroupKind.HEADER))
+            cats.forEach { c -> out.add(GroupItem(c.id, idx.catName[c.id] ?: c.name, idx.countByCat[c.id] ?: 0)) }
+        }
+        if (myRegions.isNotEmpty()) {
+            val label = if (showAllRegions) "Show only my regions" else "Show all regions"
+            out.add(GroupItem(GROUP_ACTION_ALL_REGIONS, label, 0, GroupKind.ACTION))
+        }
+        return out
+    }
+
+    // ---------- lists ----------
     fun channelsFor(group: String): List<Channel> {
         val all = library.channels
         return when (group) {
-            GROUP_ALL -> all
+            GROUP_ALL -> if (myRegions.isEmpty() || showAllRegions) all
+                else all.filter { regionVisible(index.regionOfChannel(it)) }
             GROUP_FAV -> all.filter { it.favKey in favorites }
+            GROUP_RECENT -> recents.filter { it.type == "live" }.mapNotNull { r -> all.firstOrNull { it.id == r.id } }
             else -> all.filter { it.categoryId == group }
         }
     }
 
+    private fun vodRegionOk(region: String?) = region == null || region == Names.OTHER || regionVisible(region)
+    fun movieVisible(m: Movie) = vodRegionOk(index.vodRegion[m.categoryId])
+    fun seriesVisible(s: Series) = vodRegionOk(index.seriesRegion[s.categoryId])
+    fun vodCatVisible(id: String, series: Boolean) = vodRegionOk(if (series) index.seriesRegion[id] else index.vodRegion[id])
+
     fun moviesFor(cat: String): List<Movie> {
         val all = library.movies
+        val mine = if (myRegions.isEmpty()) all else all.filter { movieVisible(it) }
         return when (cat) {
-            CAT_RECENT -> all.sortedByDescending { it.added }.take(300)
+            CAT_RECENT -> mine.sortedByDescending { it.added }.take(300)
             CAT_FAV -> all.filter { it.favKey in favorites }
-            CAT_ALL -> all
+            CAT_ALL -> mine
             else -> all.filter { it.categoryId == cat }
         }
     }
 
     fun seriesFor(cat: String): List<Series> {
         val all = library.series
+        val mine = if (myRegions.isEmpty()) all else all.filter { seriesVisible(it) }
         return when (cat) {
-            CAT_RECENT -> all.sortedByDescending { it.lastModified }.take(300)
+            CAT_RECENT -> mine.sortedByDescending { it.lastModified }.take(300)
             CAT_FAV -> all.filter { it.favKey in favorites }
-            CAT_ALL -> all
+            CAT_ALL -> mine
             else -> all.filter { it.categoryId == cat }
         }
     }
 
     fun continueWatching(): List<Pair<Movie, Progress>> {
-        val byId = library.movies.associateBy { it.progressKey }
-        return prefs.allProgress("movie:")
-            .sortedByDescending { it.ts }
-            .mapNotNull { p -> byId[p.key]?.let { it to p } }
-            .take(20)
+        val progress = prefs.allProgress("movie:").associateBy { it.key }
+        if (progress.isEmpty()) return emptyList()
+        return library.movies.asSequence()
+            .mapNotNull { m -> progress[m.progressKey]?.let { m to it } }
+            .sortedByDescending { it.second.ts }
+            .take(20).toList()
+    }
+
+    // ---------- recently watched ----------
+    var recents by mutableStateOf(prefs.recents())
+        private set
+
+    fun addRecent(type: String, id: String) {
+        val next = listOf(RecentItem(type, id, System.currentTimeMillis())) +
+            recents.filterNot { it.type == type && it.id == id }
+        recents = next.take(12)
+        prefs.saveRecents(recents)
+    }
+
+    sealed interface RecentEntry {
+        data class Ch(val channel: Channel) : RecentEntry
+        data class Mv(val movie: Movie) : RecentEntry
+        data class Sr(val series: Series) : RecentEntry
+    }
+
+    fun recentEntries(): List<RecentEntry> {
+        val lib = library
+        return recents.mapNotNull { r ->
+            when (r.type) {
+                "live" -> lib.channels.firstOrNull { it.id == r.id }?.let { RecentEntry.Ch(it) }
+                "movie" -> lib.movies.firstOrNull { it.id == r.id }?.let { RecentEntry.Mv(it) }
+                "series" -> lib.series.firstOrNull { it.id == r.id }?.let { RecentEntry.Sr(it) }
+                else -> null
+            }
+        }
+    }
+
+    // ---------- tile / list view ----------
+    private val tileModes = mutableStateMapOf<String, Boolean>()
+    fun isTiles(key: String): Boolean = tileModes[key] ?: prefs.tileView(key, default = key == GROUP_RECENT)
+    fun setTiles(key: String, on: Boolean) {
+        tileModes[key] = on
+        prefs.setTileView(key, on)
+    }
+
+    // ---------- daily refresh ----------
+    fun maybeDailyRefresh() {
+        val age = System.currentTimeMillis() - prefs.lastRefresh
+        if (age > 24 * 60 * 60_000L) {
+            AppLog.i("Daily refresh: last update ${age / 3_600_000}h ago")
+            refreshInBackground()
+        }
     }
 
     fun progress(key: String): Progress? = prefs.progress(key)
@@ -376,12 +535,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     // ---------- playback ----------
     fun playLive(channels: List<Channel>, index: Int) {
         if (channels.isEmpty()) return
+        val target = channels.getOrNull(index) ?: return
+        if (target.divider) return
+        if (channels.any { it.divider }) {
+            val playable = channels.filter { !it.divider }
+            playLive(playable, playable.indexOf(target).coerceAtLeast(0))
+            return
+        }
         liveHandoff = true
         prefs.lastChannel = channels[index].id
         push(Screen.Player(PlayRequest.Live(channels, index)))
     }
 
     fun playMovie(m: Movie, fromStart: Boolean) {
+        addRecent("movie", m.id)
         val resume = if (fromStart) 0L else prefs.progress(m.progressKey)?.pos ?: 0L
         push(Screen.Player(PlayRequest.Vod(listOf(VodItem(m.progressKey, m.name, "", m.url)), 0, resume)))
     }
@@ -394,6 +561,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val index = all.indexOfFirst { it.id == ep.id }.coerceAtLeast(0)
         val resume = if (fromStart) 0L else prefs.progress(ep.progressKey)?.pos ?: 0L
         prefs.setSeriesLastEpisode(series.id, ep.id)
+        addRecent("series", series.id)
         push(Screen.Player(PlayRequest.Vod(items, index, resume)))
     }
 

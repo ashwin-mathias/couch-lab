@@ -132,7 +132,7 @@ fun SeriesDetailScreen(vm: AppViewModel, series: Series) {
                     horizontalArrangement = Arrangement.spacedBy(20.u),
                     contentPadding = PaddingValues(end = 64.u),
                 ) {
-                    items(eps, key = { it.id }) { ep ->
+                    items(eps) { ep ->
                         EpisodeCard(vm, series, info, ep)
                     }
                 }

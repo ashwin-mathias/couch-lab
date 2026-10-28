@@ -68,7 +68,7 @@ private fun chipsFor(cats: List<Category>, hasRecent: Boolean = true): List<Chip
 @Composable
 private fun ChipRow(chips: List<Chip>, selected: String, firstFocus: FocusRequester, onSelect: (String) -> Unit) {
     LazyRow(horizontalArrangement = Arrangement.spacedBy(10.u), contentPadding = PaddingValues(end = 48.u)) {
-        itemsIndexed(chips, key = { _, c -> c.id }) { i, c ->
+        itemsIndexed(chips, key = { idx, c -> "$idx:" + (c.id) }) { i, c ->
             val sel = c.id == selected
             FocusItem(
                 onClick = { onSelect(c.id) },
@@ -100,8 +100,8 @@ private fun SectionHeader(title: String, count: Int) {
 
 @Composable
 fun MoviesScreen(vm: AppViewModel) {
-    val chips = remember(vm.library) { chipsFor(vm.library.vodCats) }
-    val movies = remember(vm.library, vm.favorites, vm.movieCat) { vm.moviesFor(vm.movieCat) }
+    val chips = remember(vm.library, vm.myRegions) { chipsFor(vm.library.vodCats.filter { vm.vodCatVisible(it.id, series = false) }) }
+    val movies = remember(vm.library, vm.favorites, vm.movieCat, vm.myRegions) { vm.moviesFor(vm.movieCat) }
     val resume = remember(vm.library, vm.progressVersion) { vm.continueWatching() }
     val firstFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(150); runCatching { firstFocus.requestFocus() } }
@@ -151,7 +151,7 @@ fun MoviesScreen(vm: AppViewModel) {
                 )
             }
         }
-        items(movies, key = { it.id }) { m ->
+        items(movies) { m ->
             PosterTile(
                 title = m.name,
                 image = m.poster,
@@ -232,8 +232,8 @@ fun MovieDetailScreen(vm: AppViewModel, movie: Movie) {
 
 @Composable
 fun SeriesScreen(vm: AppViewModel) {
-    val chips = remember(vm.library) { chipsFor(vm.library.seriesCats) }
-    val list = remember(vm.library, vm.favorites, vm.seriesCat) { vm.seriesFor(vm.seriesCat) }
+    val chips = remember(vm.library, vm.myRegions) { chipsFor(vm.library.seriesCats.filter { vm.vodCatVisible(it.id, series = true) }) }
+    val list = remember(vm.library, vm.favorites, vm.seriesCat, vm.myRegions) { vm.seriesFor(vm.seriesCat) }
     val firstFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(150); runCatching { firstFocus.requestFocus() } }
 
@@ -256,7 +256,7 @@ fun SeriesScreen(vm: AppViewModel) {
                 )
             }
         }
-        items(list, key = { it.id }) { s: Series ->
+        items(list) { s: Series ->
             PosterTile(
                 title = s.name,
                 image = s.cover,

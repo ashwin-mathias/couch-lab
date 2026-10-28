@@ -161,7 +161,7 @@ fun AboutScreen(vm: AppViewModel) {
         Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(14.u)) {
             Label("Release history")
             LazyColumn(verticalArrangement = Arrangement.spacedBy(12.u), contentPadding = PaddingValues(bottom = 24.u)) {
-                itemsIndexed(releases, key = { _, r -> r.version + r.date }) { i, r ->
+                itemsIndexed(releases, key = { idx, r -> "$idx:" + (r.version + r.date) }) { i, r ->
                     FocusItem(
                         onClick = {},
                         container = C.Panel,

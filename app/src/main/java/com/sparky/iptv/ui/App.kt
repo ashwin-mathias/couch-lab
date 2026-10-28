@@ -40,6 +40,10 @@ import com.sparky.iptv.ui.components.Toast
 import com.sparky.iptv.ui.components.u
 import com.sparky.iptv.ui.screens.AboutScreen
 import com.sparky.iptv.ui.screens.DiagnosticsScreen
+import com.sparky.iptv.ui.screens.HomeSection
+import com.sparky.iptv.ui.screens.FavoritesSection
+import com.sparky.iptv.ui.screens.RecentSection
+import com.sparky.iptv.ui.screens.RegionsScreen
 import com.sparky.iptv.ui.screens.GuideScreen
 import com.sparky.iptv.ui.screens.LiveScreen
 import com.sparky.iptv.ui.screens.LoadingScreen
@@ -62,6 +66,7 @@ fun App(vm: AppViewModel) {
                 Screen.Home -> HomeScreen(vm)
                 Screen.About -> AboutScreen(vm)
                 Screen.Diagnostics -> DiagnosticsScreen(vm)
+                is Screen.Regions -> RegionsScreen(vm, s.firstRun)
                 is Screen.MovieDetail -> MovieDetailScreen(vm, s.movie)
                 is Screen.SeriesDetail -> SeriesDetailScreen(vm, s.series)
                 is Screen.Player -> PlayerScreen(vm, s.request)
@@ -78,8 +83,11 @@ fun App(vm: AppViewModel) {
 private data class NavEntry(val section: Section, val icon: Int, val label: String)
 
 private val navEntries = listOf(
+    NavEntry(Section.HOME, R.drawable.ic_home, "Home"),
     NavEntry(Section.LIVE, R.drawable.ic_live, "Live TV"),
     NavEntry(Section.GUIDE, R.drawable.ic_guide, "TV Guide"),
+    NavEntry(Section.FAVORITES, R.drawable.ic_heart, "Favorites"),
+    NavEntry(Section.RECENT, R.drawable.ic_recent, "Recently watched"),
     NavEntry(Section.MOVIES, R.drawable.ic_movies, "Movies"),
     NavEntry(Section.SERIES, R.drawable.ic_series, "Series"),
     NavEntry(Section.SEARCH, R.drawable.ic_search, "Search"),
@@ -90,8 +98,8 @@ fun HomeScreen(vm: AppViewModel) {
     val activity = LocalContext.current as? Activity
     var lastBack by remember { mutableLongStateOf(0L) }
     BackHandler {
-        if (vm.section != Section.LIVE) {
-            vm.section = Section.LIVE
+        if (vm.section != Section.HOME) {
+            vm.section = Section.HOME
         } else {
             val now = System.currentTimeMillis()
             if (now - lastBack < 2000) activity?.finish() else {
@@ -104,8 +112,11 @@ fun HomeScreen(vm: AppViewModel) {
         NavRail(vm)
         Box(Modifier.weight(1f).fillMaxHeight()) {
             when (vm.section) {
+                Section.HOME -> HomeSection(vm)
                 Section.LIVE -> LiveScreen(vm)
                 Section.GUIDE -> GuideScreen(vm)
+                Section.FAVORITES -> FavoritesSection(vm)
+                Section.RECENT -> RecentSection(vm)
                 Section.MOVIES -> MoviesScreen(vm)
                 Section.SERIES -> SeriesScreen(vm)
                 Section.SEARCH -> SearchScreen(vm)
@@ -121,13 +132,13 @@ private fun NavRail(vm: AppViewModel) {
     Column(
         Modifier
             .fillMaxHeight()
-            .width(if (expanded) 200.u else 72.u)
+            .width(if (expanded) 240.u else 72.u)
             .background(if (expanded) C.Panel else C.Bg)
             .onFocusChanged { expanded = it.hasFocus }
-            .padding(vertical = 28.u, horizontal = 12.u),
-        verticalArrangement = Arrangement.spacedBy(10.u),
+            .padding(vertical = 22.u, horizontal = 12.u),
+        verticalArrangement = Arrangement.spacedBy(6.u),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 22.u)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 14.u)) {
             Image(
                 painter = painterResource(R.drawable.logo),
                 contentDescription = null,
@@ -150,7 +161,7 @@ private fun RailButton(e: NavEntry, vm: AppViewModel, expanded: Boolean) {
     FocusItem(
         onClick = { vm.section = e.section },
         selected = selected,
-        modifier = Modifier.height(48.u).let { if (expanded) it.width(176.u) else it.width(48.u) },
+        modifier = Modifier.height(48.u).let { if (expanded) it.width(216.u) else it.width(48.u) },
     ) { focused ->
         Row(
             Modifier.fillMaxSize().padding(horizontal = 13.u),

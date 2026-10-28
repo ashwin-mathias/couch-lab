@@ -39,6 +39,10 @@ data class Channel(
     val categoryId: String,
     val epgId: String?,
     val directUrl: String? = null,   // only for M3U playlists
+    /** Name without the region prefix ("US| ABC NEWS" → "ABC NEWS"). */
+    val display: String = Names.strip(name),
+    /** Provider divider rows like "##### NEWS #####" are shown as headings, not channels. */
+    val divider: Boolean = Names.isDivider(name),
 ) {
     val favKey get() = "live:$id"
     val url: String get() = directUrl ?: StreamUrls.live(id)
@@ -130,6 +134,9 @@ class Library(
         val EMPTY = Library(emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList())
     }
 }
+
+/** Something watched recently: a channel, a movie or a series. */
+data class RecentItem(val type: String, val id: String, val ts: Long)
 
 data class Progress(val key: String, val pos: Long, val dur: Long, val ts: Long) {
     val fraction: Float get() = if (dur > 0) (pos.toFloat() / dur).coerceIn(0f, 1f) else 0f

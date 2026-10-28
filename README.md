@@ -31,8 +31,9 @@ To update, repeat step 4. The code always points to the newest build. Your login
 | --- | --- | --- |
 | Any list | Hold OK | Add / remove favorite |
 | Full-screen live TV | ▲ / ▼ | Next / previous channel |
-| Full-screen live TV | ◀ | Jump back to the last channel |
-| Full-screen live TV | OK | Show / hide channel info |
+| Full-screen live TV | OK | Channel list over the video |
+| Full-screen live TV | ◀ or Back | Back to the channel list |
+| Full-screen live TV | ▶ | Show / hide channel info |
 | Movies & episodes | OK | Show playback controls |
 
 ## Building

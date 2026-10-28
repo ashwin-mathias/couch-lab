@@ -22,6 +22,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.activity.compose.BackHandler
 import com.sparky.iptv.R
 import com.sparky.iptv.data.Repository
+import com.sparky.iptv.data.Names
+import com.sparky.iptv.ui.GroupKind
 import com.sparky.iptv.ui.GROUP_ALL
 import com.sparky.iptv.ui.GROUP_FAV
 import com.sparky.iptv.ui.components.Icon
@@ -86,9 +88,25 @@ private fun GroupPicker(vm: AppViewModel, onDone: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.u),
         ) {
             T("Choose a group", size = 22, weight = FontWeight.Bold)
-            T("${groups.size - 2} groups · Back to close", size = 13, color = C.Dim)
+            T("${groups.count { it.kind == GroupKind.GROUP } - 3} groups · Back to close", size = 13, color = C.Dim)
             LazyColumn(state = state, verticalArrangement = Arrangement.spacedBy(4.u), contentPadding = PaddingValues(bottom = 24.u)) {
-                itemsIndexed(groups, key = { _, g -> g.id }) { i, g ->
+                itemsIndexed(groups, key = { idx, g -> "$idx:" + (g.id) }) { i, g ->
+                    if (g.kind == GroupKind.HEADER) {
+                        Label(g.name, color = C.Text2, modifier = Modifier.padding(start = 14.u, top = 16.u, bottom = 4.u))
+                        return@itemsIndexed
+                    }
+                    if (g.kind == GroupKind.ACTION) {
+                        FocusItem(
+                            onClick = { vm.showAllRegions = !vm.showAllRegions },
+                            container = C.Raised,
+                            shape = RoundedCornerShape(10.u),
+                            modifier = Modifier.fillMaxWidth().height(46.u),
+                        ) { f ->
+                            T(g.name, size = 14, weight = FontWeight.SemiBold, color = if (f) C.OnFocus else C.Text2,
+                                modifier = Modifier.align(Alignment.CenterStart).padding(horizontal = 14.u))
+                        }
+                        return@itemsIndexed
+                    }
                     val isSel = g.id == vm.liveGroup
                     FocusItem(
                         onClick = { vm.liveGroup = g.id; onDone() },
@@ -137,10 +155,10 @@ private fun GuideContent(vm: AppViewModel, onPickGroup: () -> Unit) {
                 }
                 val ch = focusedCh
                 val p = focusedProg
-                T(p?.title ?: ch?.name ?: "TV guide", size = 30, weight = FontWeight.Bold)
+                T(p?.title ?: ch?.display ?: "TV guide", size = 30, weight = FontWeight.Bold)
                 if (ch != null) {
                     Row(horizontalArrangement = Arrangement.spacedBy(14.u)) {
-                        T("${ch.num} · ${ch.name}", size = 14, color = C.Text2)
+                        T("${ch.num} · ${ch.display}", size = 14, color = C.Text2)
                         if (p != null) {
                             T("${fmtShort(p.start)} – ${fmtClock(p.end)}", size = 14, color = C.Dim)
                             if (now in p.start until p.end) T(fmtLeft(p.end, now), size = 14, color = C.Dim)
@@ -206,13 +224,20 @@ private fun GuideContent(vm: AppViewModel, onPickGroup: () -> Unit) {
                 }
                 Box(Modifier.fillMaxWidth().height(1.u).background(C.Line))
                 Spacer(Modifier.height(4.u))
+                val firstPlayable = channels.indexOfFirst { !it.divider }
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(4.u), contentPadding = PaddingValues(bottom = 24.u)) {
-                    itemsIndexed(channels, key = { _, c -> c.id }) { i, ch ->
+                    itemsIndexed(channels, key = { idx, c -> "$idx:" + (c.id) }) { i, ch ->
+                        if (ch.divider) {
+                            Row(Modifier.padding(top = 12.u, bottom = 4.u), verticalAlignment = Alignment.CenterVertically) {
+                                Label(Names.dividerTitle(ch.name), color = C.Text2)
+                            }
+                            return@itemsIndexed
+                        }
                         GuideRow(
                             vm, ch, now, winStart, winEnd, perMin, chanCol,
                             onPlay = { vm.playLive(channels, i) },
                             onFocus = { e -> focusedCh = ch; focusedProg = e },
-                            focusRequester = if (i == 0) firstFocus else null,
+                            focusRequester = if (i == firstPlayable) firstFocus else null,
                         )
                     }
                 }
@@ -244,20 +269,23 @@ private fun GuideRow(
 ) {
     LaunchedEffect(ch.id) { vm.ensureEpg(ch) }
     val entries = vm.epg[ch.id].orEmpty().filter { it.end > winStart && it.start < winEnd }
-    Row(Modifier.height(52.u), verticalAlignment = Alignment.CenterVertically) {
+    // Channels without guide data get a slimmer row so the guide stays compact.
+    val compact = entries.isEmpty() && vm.epg.containsKey(ch.id)
+    Row(Modifier.height(if (compact) 38.u else 52.u), verticalAlignment = Alignment.CenterVertically) {
         Row(Modifier.width(chanCol), verticalAlignment = Alignment.CenterVertically) {
-            T(ch.num.toString(), size = 12, color = C.Dim, modifier = Modifier.width(36.u))
-            ChannelLogo(ch.name, ch.logo, 34.u)
+            T(ch.num.toString(), size = 12, color = C.Dim, modifier = Modifier.width(44.u))
+            ChannelLogo(ch.display, ch.logo, if (compact) 28.u else 34.u)
             Spacer(Modifier.width(12.u))
-            T(ch.name, size = 14, weight = FontWeight.SemiBold, modifier = Modifier.padding(end = 12.u))
+            T(ch.display, size = 14, weight = FontWeight.SemiBold, modifier = Modifier.padding(end = 12.u))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(4.u)) {
             if (entries.isEmpty()) {
                 ProgramCell(
-                    title = if (vm.epg.containsKey(ch.id)) ch.name else "Loading…",
-                    sub = if (vm.epg.containsKey(ch.id)) "No guide information" else "",
+                    title = if (compact) "${ch.display}  ·  no guide information" else "Loading…",
+                    sub = "",
                     width = perMin * WINDOW_MIN - 4.u,
                     live = true,
+                    height = if (compact) 34.u else 46.u,
                     onClick = onPlay,
                     onFocus = { onFocus(null) },
                     modifier = if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier,
@@ -268,7 +296,7 @@ private fun GuideRow(
                     val en = minOf(e.end, winEnd)
                     val w = (perMin * ((en - s) / 60_000f) - 4.u).coerceAtLeast(24.dp)
                     ProgramCell(
-                        title = e.title.ifBlank { ch.name },
+                        title = e.title.ifBlank { ch.display },
                         sub = "${fmtShort(e.start)} – ${fmtShort(e.end)}",
                         width = w,
                         live = now in e.start until e.end,
@@ -291,13 +319,14 @@ private fun ProgramCell(
     onClick: () -> Unit,
     onFocus: () -> Unit,
     modifier: Modifier = Modifier,
+    height: Dp = 46.u,
 ) {
     FocusItem(
         onClick = onClick,
         onFocus = onFocus,
         container = if (live) C.Raised else C.Panel,
         shape = RoundedCornerShape(8.u),
-        modifier = modifier.width(width).height(46.u),
+        modifier = modifier.width(width).height(height),
     ) { f ->
         Column(
             Modifier.fillMaxSize().padding(horizontal = 12.u),

@@ -79,6 +79,38 @@ class Prefs(ctx: Context) {
         e.apply()
     }
 
+    // ---- regions ----
+    fun myRegions(): Set<String> = sp.getStringSet("my_regions", emptySet())?.toSet() ?: emptySet()
+    fun saveMyRegions(s: Set<String>) = sp.edit().putStringSet("my_regions", HashSet(s)).apply()
+
+    var regionsPrompted: Boolean
+        get() = sp.getBoolean("regions_prompted", false)
+        set(v) = sp.edit().putBoolean("regions_prompted", v).apply()
+
+    // ---- recently watched (newest first, up to 12) ----
+    fun recents(): List<RecentItem> = runCatching {
+        val arr = org.json.JSONArray(sp.getString("recents", "[]"))
+        (0 until arr.length()).mapNotNull { i ->
+            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+            RecentItem(o.optString("t"), o.optString("id"), o.optLong("ts"))
+        }
+    }.getOrDefault(emptyList())
+
+    fun saveRecents(list: List<RecentItem>) {
+        val arr = org.json.JSONArray()
+        list.forEach { arr.put(JSONObject().put("t", it.type).put("id", it.id).put("ts", it.ts)) }
+        sp.edit().putString("recents", arr.toString()).apply()
+    }
+
+    // ---- tile or list view, per list ----
+    fun tileView(key: String, default: Boolean): Boolean = sp.getBoolean("tiles:$key", default)
+    fun setTileView(key: String, on: Boolean) = sp.edit().putBoolean("tiles:$key", on).apply()
+
+    // ---- daily refresh ----
+    var lastRefresh: Long
+        get() = sp.getLong("last_refresh", 0L)
+        set(v) = sp.edit().putLong("last_refresh", v).apply()
+
     var lastChannel: String?
         get() = sp.getString("last_channel", null)
         set(v) = sp.edit().putString("last_channel", v).apply()

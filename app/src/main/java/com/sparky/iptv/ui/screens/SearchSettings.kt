@@ -19,6 +19,8 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
@@ -57,9 +59,18 @@ import kotlinx.coroutines.delay
 fun SearchScreen(vm: AppViewModel) {
     val q = vm.searchQuery.trim()
     val lib = vm.library
-    val chans = remember(lib, q) { if (q.length < 2) emptyList() else lib.channels.filter { it.name.contains(q, true) }.take(40) }
-    val movies = remember(lib, q) { if (q.length < 2) emptyList() else lib.movies.filter { it.name.contains(q, true) }.take(40) }
-    val series = remember(lib, q) { if (q.length < 2) emptyList() else lib.series.filter { it.name.contains(q, true) }.take(40) }
+    // Search only your regions (favorites are always included).
+    val chans = remember(lib, q, vm.myRegions) {
+        if (q.length < 2) emptyList() else lib.channels.asSequence()
+            .filter { !it.divider && it.name.contains(q, true) && (it.favKey in vm.favorites || vm.regionVisible(vm.index.regionOfChannel(it))) }
+            .take(40).toList()
+    }
+    val movies = remember(lib, q, vm.myRegions) {
+        if (q.length < 2) emptyList() else lib.movies.asSequence().filter { it.name.contains(q, true) && vm.movieVisible(it) }.take(40).toList()
+    }
+    val series = remember(lib, q, vm.myRegions) {
+        if (q.length < 2) emptyList() else lib.series.asSequence().filter { it.name.contains(q, true) && vm.seriesVisible(it) }.take(40).toList()
+    }
     val fieldFocus = remember { FocusRequester() }
     var fieldFocused by remember { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -109,7 +120,7 @@ fun SearchScreen(vm: AppViewModel) {
             Column(verticalArrangement = Arrangement.spacedBy(12.u)) {
                 Label("Channels")
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.u)) {
-                    items(chans, key = { it.id }) { ch ->
+                    items(chans) { ch ->
                         FocusItem(
                             onClick = { vm.playLive(chans, chans.indexOf(ch)) },
                             onLongClick = { vm.toggleFavorite(ch.favKey, ch.name) },
@@ -130,7 +141,7 @@ fun SearchScreen(vm: AppViewModel) {
             Column(verticalArrangement = Arrangement.spacedBy(12.u)) {
                 Label("Movies")
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(20.u)) {
-                    items(movies, key = { it.id }) { m ->
+                    items(movies) { m ->
                         Box(Modifier.width(140.u)) {
                             PosterTile(m.name, m.poster, m.favKey in vm.favorites,
                                 onClick = { vm.push(Screen.MovieDetail(m)) },
@@ -144,7 +155,7 @@ fun SearchScreen(vm: AppViewModel) {
             Column(verticalArrangement = Arrangement.spacedBy(12.u)) {
                 Label("Series")
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(20.u)) {
-                    items(series, key = { it.id }) { s ->
+                    items(series) { s ->
                         Box(Modifier.width(140.u)) {
                             PosterTile(s.name, s.cover, s.favKey in vm.favorites,
                                 onClick = { vm.push(Screen.SeriesDetail(s)) },
@@ -171,7 +182,7 @@ fun SettingsScreen(vm: AppViewModel) {
     Column(Modifier.fillMaxSize().padding(horizontal = 48.u, vertical = 32.u), verticalArrangement = Arrangement.spacedBy(24.u)) {
         T("Settings", size = 30, weight = FontWeight.Bold)
         Row(horizontalArrangement = Arrangement.spacedBy(48.u)) {
-            Column(Modifier.width(520.u), verticalArrangement = Arrangement.spacedBy(10.u)) {
+            Column(Modifier.width(520.u).verticalScroll(rememberScrollState()).padding(bottom = 32.u), verticalArrangement = Arrangement.spacedBy(8.u)) {
                 val upd = vm.update
                 if (upd != null) {
                     SettingRow(
@@ -181,7 +192,22 @@ fun SettingsScreen(vm: AppViewModel) {
                     ) { vm.installUpdate() }
                 }
                 SettingRow("Change login", "Scan a QR code and enter a new login on your phone", if (upd == null) Modifier.focusRequester(firstFocus) else Modifier) { vm.changeLogin() }
-                SettingRow(if (vm.refreshing) "Updating playlist…" else "Update playlist", "Fetch the latest channels, movies and series") { vm.refreshInBackground(showToast = true) }
+                val regionSummary = when {
+                    vm.myRegions.isEmpty() -> "Showing all regions"
+                    else -> vm.myRegions.joinToString(", ") { com.sparky.iptv.data.Names.regionLabel(it) }
+                }
+                SettingRow("My regions", regionSummary) { vm.push(Screen.Regions(firstRun = false)) }
+                val last = vm.prefs.lastRefresh
+                val ago = if (last <= 0L) "Not updated yet" else {
+                    val mins = (System.currentTimeMillis() - last) / 60_000
+                    when {
+                        mins < 1 -> "Updated just now"
+                        mins < 60 -> "Updated $mins min ago"
+                        mins < 48 * 60 -> "Updated ${mins / 60} h ago"
+                        else -> "Updated ${mins / 1440} days ago"
+                    } + " · updates automatically once a day"
+                }
+                SettingRow(if (vm.refreshing) "Updating playlist…" else "Update playlist now", ago) { vm.refreshInBackground(showToast = true) }
                 SettingRow("Clear watch history", "Removes resume points for movies and episodes") { vm.clearHistory() }
                 SettingRow("Check for updates", "Looks for a newer version on GitHub") { vm.checkForUpdate(manual = true) }
                 SettingRow("Diagnostics", "Activity log and last error, viewable on your phone") { vm.push(Screen.Diagnostics) }
@@ -209,7 +235,7 @@ fun SettingsScreen(vm: AppViewModel) {
 
 @Composable
 private fun SettingRow(title: String, sub: String, modifier: Modifier = Modifier, highlight: Boolean = false, onClick: () -> Unit) {
-    FocusItem(onClick = onClick, container = if (highlight) C.Raised else C.Panel, modifier = modifier.fillMaxWidth().height(76.u)) { f ->
+    FocusItem(onClick = onClick, container = if (highlight) C.Raised else C.Panel, modifier = modifier.fillMaxWidth().height(66.u)) { f ->
         Column(Modifier.fillMaxSize().padding(horizontal = 20.u), verticalArrangement = Arrangement.Center) {
             T(title, size = 17, weight = FontWeight.SemiBold, color = if (f) C.OnFocus else C.Text)
             Spacer(Modifier.height(4.u))

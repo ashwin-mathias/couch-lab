@@ -22,6 +22,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         if (vm.current is Screen.Player || vm.current == Screen.Home) PlayerHolder.resume()
+        if (vm.current == Screen.Home) vm.maybeDailyRefresh()
     }
 
     override fun onStop() {

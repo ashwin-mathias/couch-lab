@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.0",
+    "date": "2026-10-27",
+    "title": "Home, regions, favorites and recents",
+    "notes": [
+      "New Home screen: recently watched, favorite channels, continue watching and new movies as tiles",
+      "My regions: choose the regions you watch once (US, India…); change or reset anytime in Settings",
+      "Group lists are organized under region headings, with cleaner channel names",
+      "Provider divider rows (##### NEWS #####) now show as headings instead of channels",
+      "LIVE / NEXT badges on event channels",
+      "Favorites and Recently watched pages in the side menu, with a tile or list view",
+      "Full-screen TV: OK opens a channel list over the video; Left or Back returns to the channel list",
+      "Playlist updates automatically once a day, with the last update time in Settings",
+      "TV guide: slimmer rows for channels without guide information",
+      "Favorites now use a heart"
+    ]
+  },
+  {
     "version": "1.4",
     "date": "2026-10-27",
     "title": "Guide filters",
