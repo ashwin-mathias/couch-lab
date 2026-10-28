@@ -6,6 +6,8 @@ plugins {
 
 // Every GitHub build gets a higher version so updates install over the old app.
 val buildNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
+// Bump this with each release and add a matching entry to app/src/main/assets/changelog.json.
+val appVersion = "1.0"
 
 android {
     namespace = "com.sparky.iptv"
@@ -16,7 +18,7 @@ android {
         minSdk = 23
         targetSdk = 34
         versionCode = buildNumber
-        versionName = "1.0.$buildNumber"
+        versionName = "$appVersion (build $buildNumber)"
     }
 
     signingConfigs {

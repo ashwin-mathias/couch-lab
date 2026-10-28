@@ -175,6 +175,7 @@ fun SettingsScreen(vm: AppViewModel) {
                 SettingRow("Change login", "Scan a QR code and enter a new login on your phone", Modifier.focusRequester(firstFocus)) { vm.changeLogin() }
                 SettingRow(if (vm.refreshing) "Updating playlist…" else "Update playlist", "Fetch the latest channels, movies and series") { vm.refreshInBackground(showToast = true) }
                 SettingRow("Clear watch history", "Removes resume points for movies and episodes") { vm.clearHistory() }
+                SettingRow("About Sparky IPTV", "Who made it, and what's new in each version") { vm.push(Screen.About) }
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.u)) {
                 Label("Playlist")

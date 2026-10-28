@@ -38,6 +38,7 @@ import com.sparky.iptv.ui.components.Icon
 import com.sparky.iptv.ui.components.T
 import com.sparky.iptv.ui.components.Toast
 import com.sparky.iptv.ui.components.u
+import com.sparky.iptv.ui.screens.AboutScreen
 import com.sparky.iptv.ui.screens.GuideScreen
 import com.sparky.iptv.ui.screens.LiveScreen
 import com.sparky.iptv.ui.screens.LoadingScreen
@@ -58,6 +59,7 @@ fun App(vm: AppViewModel) {
                 Screen.Setup -> SetupScreen(vm)
                 Screen.Loading -> LoadingScreen(vm)
                 Screen.Home -> HomeScreen(vm)
+                Screen.About -> AboutScreen(vm)
                 is Screen.MovieDetail -> MovieDetailScreen(vm, s.movie)
                 is Screen.SeriesDetail -> SeriesDetailScreen(vm, s.series)
                 is Screen.Player -> PlayerScreen(vm, s.request)

@@ -1,0 +1,16 @@
+[
+  {
+    "version": "1.0",
+    "date": "2026-10-27",
+    "title": "First release",
+    "notes": [
+      "Live TV with channel groups, logos, live preview and now/next info",
+      "Favorites: hold OK on any channel, movie or series",
+      "TV guide grid with a live 'now' line",
+      "Movies and Series with resume, start over and next episode",
+      "Search across channels, movies and series",
+      "Set up from your phone by scanning a QR code",
+      "About page with release history"
+    ]
+  }
+]
