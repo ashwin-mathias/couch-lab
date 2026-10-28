@@ -53,7 +53,7 @@ object StreamParsers {
 
     fun live(file: File, x: XtreamClient, fmt: String): List<Channel> {
         val out = ArrayList<Channel>()
-        readObjects(file, setOf("stream_id", "num", "name", "stream_icon", "category_id", "epg_channel_id")) { m ->
+        readObjects(file, setOf("stream_id", "num", "name", "stream_icon", "category_id", "epg_channel_id", "tv_archive", "tv_archive_duration")) { m ->
             val id = m["stream_id"] ?: return@readObjects
             val n = out.size + 1
             out.add(
@@ -64,6 +64,9 @@ object StreamParsers {
                     logo = m["stream_icon"],
                     categoryId = (m["category_id"] ?: "").intern(),
                     epgId = m["epg_channel_id"],
+                    // Catch-up: the provider keeps past shows for this many days (0 = none).
+                    archiveDays = if (m["tv_archive"]?.toDoubleOrNull()?.toInt() == 1)
+                        (m["tv_archive_duration"]?.toDoubleOrNull()?.toInt() ?: 1).coerceAtLeast(1) else 0,
                 )
             )
         }

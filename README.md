@@ -32,8 +32,9 @@ To update, repeat step 4. The code always points to the newest build. Your login
 | Any list | Hold OK | Add / remove favorite |
 | Full-screen live TV | ▲ / ▼ | Next / previous channel |
 | Full-screen live TV | ◀ or Back | Back to the page you came from |
-| Full-screen live TV | ▶ | Show / hide channel info |
-| Movies & episodes | OK | Show playback controls |
+| Full-screen live TV | ▶ | Audio & subtitles |
+| Full-screen live TV | Hold OK | Add / remove favorite |
+| Movies & episodes | OK | Playback controls (subtitles, audio under the gear) |
 
 ## Building
 

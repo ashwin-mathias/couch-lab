@@ -1,5 +1,15 @@
 [
   {
+    "version": "2.2",
+    "date": "2026-10-28",
+    "title": "Audio and subtitles",
+    "notes": [
+      "Live TV: press ▶ to choose the audio track and subtitles; your choice is remembered per channel",
+      "Movies and episodes: subtitles button and audio tracks in the player controls",
+      "Diagnostics shows how many channels offer catch-up, and for how many days"
+    ]
+  },
+  {
     "version": "2.1",
     "date": "2026-10-28",
     "title": "Faster start and live previews",

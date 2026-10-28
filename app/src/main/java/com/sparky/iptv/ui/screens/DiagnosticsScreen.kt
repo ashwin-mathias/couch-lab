@@ -70,6 +70,14 @@ fun DiagnosticsScreen(vm: AppViewModel) {
                 appendLine("Memory: ${rt.totalMemory() / 1048576} MB used of ${rt.maxMemory() / 1048576} MB")
                 val lib = vm.library
                 appendLine("Library: ${lib.channels.size} channels · ${lib.movies.size} movies · ${lib.series.size} series")
+                val archive = lib.channels.filter { it.archiveDays > 0 }
+                appendLine(
+                    when {
+                        !vm.prefs.catchupScanned -> "Catch-up: checking at the next playlist update"
+                        archive.isEmpty() -> "Catch-up: not offered by your provider"
+                        else -> "Catch-up: ${archive.size} channels · up to ${archive.maxOf { it.archiveDays }} days"
+                    }
+                )
                 appendLine("Playlist type: ${vm.prefs.playlist?.type ?: "none"} · live format ${vm.prefs.liveFormat}")
             }
         }
@@ -95,7 +103,7 @@ fun DiagnosticsScreen(vm: AppViewModel) {
                 else T("No Wi-Fi", size = 16, color = C.Dim)
             }
             url?.let { T(it.removePrefix("http://"), size = 15, weight = FontWeight.SemiBold) }
-            T(header().trim(), size = 12, color = C.Dim, maxLines = 6, lineHeight = 1.5f)
+            T(header().trim(), size = 12, color = C.Dim, maxLines = 8, lineHeight = 1.5f)
             Spacer(Modifier.weight(1f))
             Row(horizontalArrangement = Arrangement.spacedBy(12.u)) {
                 PillButton("Refresh", Modifier.focusRequester(first)) { refreshTick++ }

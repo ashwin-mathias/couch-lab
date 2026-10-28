@@ -38,6 +38,7 @@ object PlayerHolder {
             return
         }
         currentUrl = url
+        TrackHelper.reset(p)
         val builder = MediaItem.Builder().setUri(url)
         val lower = url.substringBefore('?').lowercase()
         if (lower.endsWith(".m3u8")) builder.setMimeType(MimeTypes.APPLICATION_M3U8)

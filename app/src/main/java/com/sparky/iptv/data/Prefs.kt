@@ -106,6 +106,21 @@ class Prefs(ctx: Context) {
     fun tileView(key: String, default: Boolean): Boolean = sp.getBoolean("tiles:$key", default)
     fun setTileView(key: String, on: Boolean) = sp.edit().putBoolean("tiles:$key", on).apply()
 
+    /** Set once the playlist has been downloaded by a version that records catch-up info. */
+    var catchupScanned: Boolean
+        get() = sp.getBoolean("catchup_scanned", false)
+        set(v) = sp.edit().putBoolean("catchup_scanned", v).apply()
+
+    // ---- audio / subtitle choice per channel ("audioLang|textLang", text "off" = subtitles off) ----
+    fun trackChoice(key: String): Pair<String?, String?> {
+        val raw = sp.getString("trk:$key", null) ?: return null to null
+        val parts = raw.split("|")
+        return parts.getOrNull(0)?.ifBlank { null } to parts.getOrNull(1)?.ifBlank { null }
+    }
+
+    fun saveTrackChoice(key: String, audio: String?, text: String?) =
+        sp.edit().putString("trk:$key", "${audio ?: ""}|${text ?: ""}").apply()
+
     // ---- daily refresh ----
     var lastRefresh: Long
         get() = sp.getLong("last_refresh", 0L)

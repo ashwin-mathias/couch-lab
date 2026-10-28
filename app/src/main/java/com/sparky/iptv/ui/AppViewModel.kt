@@ -230,6 +230,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     refreshing = true
                     setLib(repo.refresh(stepListener))
                     prefs.lastRefresh = System.currentTimeMillis()
+                prefs.catchupScanned = true
                     resetTo(Screen.Home)
                     checkForUpdate()
                     maybePromptRegions()
@@ -254,6 +255,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 setLib(repo.refresh())
                 prefs.lastRefresh = System.currentTimeMillis()
+                prefs.catchupScanned = true
                 if (showToast) toast = "Playlist updated"
             } catch (t: Throwable) {
                 if (t is kotlinx.coroutines.CancellationException) throw t
@@ -519,7 +521,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     // ---------- daily refresh ----------
     fun maybeDailyRefresh() {
         val age = System.currentTimeMillis() - prefs.lastRefresh
-        if (age > 24 * 60 * 60_000L) {
+        // Version 2.2 records catch-up info; fetch once so Diagnostics can report it.
+        val needCatchup = !prefs.catchupScanned && prefs.playlist?.type == "xtream"
+        if (age > 24 * 60 * 60_000L || needCatchup) {
             AppLog.i("Daily refresh: last update ${age / 3_600_000}h ago")
             refreshInBackground()
         }

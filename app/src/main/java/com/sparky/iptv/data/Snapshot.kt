@@ -13,7 +13,8 @@ import java.io.FileOutputStream
  * Reading it is many times faster than re-reading the provider's raw lists on every start.
  */
 object Snapshot {
-    private const val VERSION = 1
+    // Version 2 adds catch-up days to channels; version 1 files are still readable.
+    private const val VERSION = 2
     private const val MAGIC = 0x5350524B // "SPRK"
 
     // ---------- small helpers ----------
@@ -47,11 +48,13 @@ object Snapshot {
         }
     }
 
-    private inline fun <T> read(file: File, block: DataInputStream.() -> T): T? {
+    private inline fun <T> read(file: File, block: DataInputStream.(Int) -> T): T? {
         if (!file.exists() || file.length() < 8) return null
         return DataInputStream(BufferedInputStream(FileInputStream(file), 256 * 1024)).use { inp ->
-            if (inp.readInt() != MAGIC || inp.readInt() != VERSION) return null
-            inp.block()
+            if (inp.readInt() != MAGIC) return null
+            val v = inp.readInt()
+            if (v < 1 || v > VERSION) return null
+            inp.block(v)
         }
     }
 
@@ -71,18 +74,22 @@ object Snapshot {
         writeInt(channels.size)
         for (c in channels) {
             str(c.id); writeInt(c.num); str(c.name); str(c.logo); str(c.categoryId); str(c.epgId); str(c.directUrl)
+            writeInt(c.archiveDays)
         }
     }
 
-    fun readLive(file: File, onProgress: (Int, Int) -> Unit = { _, _ -> }): Pair<List<Category>, List<Channel>>? = read(file) {
+    fun readLive(file: File, onProgress: (Int, Int) -> Unit = { _, _ -> }): Pair<List<Category>, List<Channel>>? = read(file) { v ->
         val cats = cats()
         val n = readInt()
         val out = ArrayList<Channel>(n)
         repeat(n) { i ->
+            val id = strNN(); val num = readInt(); val name = strNN(); val logo = str()
+            val cat = strNN().intern(); val epg = str(); val direct = str()
+            val archive = if (v >= 2) readInt() else 0
             out.add(
                 Channel(
-                    id = strNN(), num = readInt(), name = strNN(), logo = str(),
-                    categoryId = strNN().intern(), epgId = str(), directUrl = str(),
+                    id = id, num = num, name = name, logo = logo,
+                    categoryId = cat, epgId = epg, directUrl = direct, archiveDays = archive,
                 )
             )
             if (i % 20_000 == 0) onProgress(i, n)
@@ -99,7 +106,7 @@ object Snapshot {
         }
     }
 
-    fun readMovies(file: File, onProgress: (Int, Int) -> Unit = { _, _ -> }): Pair<List<Category>, List<Movie>>? = read(file) {
+    fun readMovies(file: File, onProgress: (Int, Int) -> Unit = { _, _ -> }): Pair<List<Category>, List<Movie>>? = read(file) { _ ->
         val cats = cats()
         val n = readInt()
         val out = ArrayList<Movie>(n)
@@ -125,7 +132,7 @@ object Snapshot {
         }
     }
 
-    fun readSeries(file: File, onProgress: (Int, Int) -> Unit = { _, _ -> }): Pair<List<Category>, List<Series>>? = read(file) {
+    fun readSeries(file: File, onProgress: (Int, Int) -> Unit = { _, _ -> }): Pair<List<Category>, List<Series>>? = read(file) { _ ->
         val cats = cats()
         val n = readInt()
         val out = ArrayList<Series>(n)

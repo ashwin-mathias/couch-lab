@@ -39,6 +39,8 @@ data class Channel(
     val categoryId: String,
     val epgId: String?,
     val directUrl: String? = null,   // only for M3U playlists
+    /** Days of catch-up the provider keeps for this channel; 0 when it has none. */
+    val archiveDays: Int = 0,
     /** Name without the region prefix ("US| ABC NEWS" → "ABC NEWS"). */
     val display: String = Names.strip(name),
     /** Provider divider rows like "##### NEWS #####" are shown as headings, not channels. */

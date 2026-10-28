@@ -87,6 +87,8 @@ fun PlayerSurface(modifier: Modifier = Modifier, withControls: Boolean = false) 
                 setBackgroundColor(AColor.BLACK)
                 keepScreenOn = true
                 if (withControls) {
+                    // Movies and episodes: subtitles button; audio tracks are under the settings (gear) button.
+                    setShowSubtitleButton(true)
                     isFocusable = true
                     isFocusableInTouchMode = true
                     controllerShowTimeoutMs = 3500

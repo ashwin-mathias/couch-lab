@@ -39,6 +39,9 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import com.sparky.iptv.R
 import com.sparky.iptv.player.PlayerHolder
+import com.sparky.iptv.player.TrackHelper
+import androidx.media3.common.C
+import com.sparky.iptv.ui.components.Label
 import com.sparky.iptv.ui.AppViewModel
 import com.sparky.iptv.ui.PlayRequest
 import com.sparky.iptv.ui.Section
@@ -70,6 +73,8 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
     var index by remember { mutableIntStateOf(req.index.coerceIn(0, channels.lastIndex)) }
     var previous by remember { mutableIntStateOf(-1) }
     var showInfo by remember { mutableStateOf(true) }
+    var panelOpen by remember { mutableStateOf(false) }
+    var tracksTick by remember { mutableIntStateOf(0) }
     var infoTick by remember { mutableIntStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
     var triedFallback by remember { mutableStateOf(false) }
@@ -84,6 +89,8 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
         vm.pop()
     }
     BackHandler { leave() }
+    // Registered after the one above, so Back closes the audio & subtitles panel first.
+    BackHandler(enabled = panelOpen) { panelOpen = false }
 
     LaunchedEffect(ch.id) {
         error = null
@@ -127,13 +134,21 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) error = null
             }
+            override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+                // Re-apply the audio / subtitle choice remembered for this channel.
+                val (audio, text) = vm.prefs.trackChoice(ch.favKey)
+                if (audio != null || text != null) TrackHelper.applyRemembered(player, audio, text)
+                tracksTick++
+            }
         }
         player.addListener(l)
         onDispose { player.removeListener(l) }
     }
-    LaunchedEffect(Unit) {
-        delay(80)
-        runCatching { focus.requestFocus() }
+    LaunchedEffect(panelOpen) {
+        if (!panelOpen) {
+            delay(80)
+            runCatching { focus.requestFocus() }
+        }
     }
 
     fun switchTo(i: Int) {
@@ -149,6 +164,7 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
             .focusRequester(focus)
             .focusable()
             .onPreviewKeyEvent { ev ->
+                if (panelOpen) return@onPreviewKeyEvent false
                 val code = ev.nativeKeyEvent.keyCode
                 when (ev.type) {
                     KeyEventType.KeyDown -> when (code) {
@@ -159,9 +175,11 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
                             if (previous in channels.indices) switchTo(previous)
                             true
                         }
-                        AKey.KEYCODE_DPAD_RIGHT -> {
-                            showInfo = !showInfo
-                            if (showInfo) infoTick++
+                        AKey.KEYCODE_DPAD_RIGHT, AKey.KEYCODE_MENU, AKey.KEYCODE_CAPTIONS -> {
+                            // Opens the audio & subtitles panel, with the channel info.
+                            panelOpen = true
+                            showInfo = true
+                            infoTick++
                             true
                         }
                         AKey.KEYCODE_DPAD_CENTER, AKey.KEYCODE_ENTER, AKey.KEYCODE_NUMPAD_ENTER -> true
@@ -228,12 +246,93 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
                     }
                     Row {
                         T(next?.let { "Next · ${fmtClock(it.start)}  ${it.title}" } ?: "", size = 13, color = C.Dim, modifier = Modifier.weight(1f))
-                        T("▲▼ Change channel   ·   ◀ Back   ·   ▶ Info   ·   Hold OK ♥", size = 13, color = C.Dim)
+                        T("▲▼ Change channel   ·   ◀ Back   ·   ▶ Audio & subtitles   ·   Hold OK ♥", size = 13, color = C.Dim)
                     }
                 }
             }
         }
 
+        if (panelOpen) {
+            TrackPanel(
+                vm = vm,
+                channelKey = ch.favKey,
+                tick = tracksTick,
+                onChanged = { tracksTick++ },
+                modifier = Modifier.align(Alignment.CenterEnd),
+            )
+        }
+    }
+}
+
+/** Side panel listing the stream's audio tracks and subtitles. Choices are remembered per channel. */
+@Composable
+private fun TrackPanel(vm: AppViewModel, channelKey: String, tick: Int, onChanged: () -> Unit, modifier: Modifier = Modifier) {
+    val ctx = LocalContext.current
+    val player = remember { PlayerHolder.get(ctx) }
+    val audio = remember(tick) { TrackHelper.options(player, C.TRACK_TYPE_AUDIO) }
+    val subs = remember(tick) { TrackHelper.options(player, C.TRACK_TYPE_TEXT) }
+    val subsOn = remember(tick) { TrackHelper.subtitlesOn(player) }
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) { delay(80); runCatching { first.requestFocus() } }
+
+    fun saveChoice(audioLang: String?, textLang: String?) {
+        val (a, t) = vm.prefs.trackChoice(channelKey)
+        vm.prefs.saveTrackChoice(channelKey, audioLang ?: a, textLang ?: t)
+    }
+
+    Column(
+        modifier.fillMaxHeight().width(380.u).background(C.Bg.copy(alpha = 0.94f))
+            .padding(start = 24.u, end = 40.u, top = 40.u, bottom = 40.u),
+        verticalArrangement = Arrangement.spacedBy(6.u),
+    ) {
+        T("Audio & subtitles", size = 20, weight = FontWeight.Bold)
+        T("Back to close", size = 12, color = C.Dim, modifier = Modifier.padding(bottom = 10.u))
+
+        Label("Audio", modifier = Modifier.padding(top = 6.u, bottom = 4.u))
+        if (audio.isEmpty()) {
+            T("Loading…", size = 14, color = C.Dim)
+        } else if (audio.size == 1) {
+            T("${audio[0].label} (only track)", size = 14, color = C.Muted, modifier = Modifier.padding(start = 4.u))
+        }
+        if (audio.size > 1) audio.forEachIndexed { i, o ->
+            TrackRow(o.label, o.selected, if (i == 0) Modifier.focusRequester(first) else Modifier) {
+                TrackHelper.select(player, C.TRACK_TYPE_AUDIO, o)
+                saveChoice(o.language, null)
+                onChanged()
+            }
+        }
+
+        Label("Subtitles", modifier = Modifier.padding(top = 16.u, bottom = 4.u))
+        TrackRow("Off", !subsOn, if (audio.size <= 1) Modifier.focusRequester(first) else Modifier) {
+            TrackHelper.subtitlesOff(player)
+            saveChoice(null, "off")
+            onChanged()
+        }
+        if (subs.isEmpty()) {
+            T("This channel has no subtitles.", size = 13, color = C.Dim, modifier = Modifier.padding(start = 4.u, top = 4.u))
+        }
+        subs.forEach { o ->
+            TrackRow(o.label, subsOn && o.selected) {
+                TrackHelper.select(player, C.TRACK_TYPE_TEXT, o)
+                saveChoice(null, o.language ?: "")
+                onChanged()
+            }
+        }
+    }
+}
+
+@Composable
+private fun TrackRow(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    com.sparky.iptv.ui.components.FocusItem(
+        onClick = onClick,
+        selected = selected,
+        shape = RoundedCornerShape(10.u),
+        modifier = modifier.fillMaxWidth().height(46.u),
+    ) { f ->
+        Row(Modifier.fillMaxSize().padding(horizontal = 14.u), verticalAlignment = Alignment.CenterVertically) {
+            T(if (selected) "✓" else "", size = 14, weight = FontWeight.Bold, color = if (f) C.OnFocus else C.Text, modifier = Modifier.width(24.u))
+            T(label, size = 15, weight = if (selected) FontWeight.SemiBold else FontWeight.Normal, color = if (f) C.OnFocus else C.Text)
+        }
     }
 }
 
