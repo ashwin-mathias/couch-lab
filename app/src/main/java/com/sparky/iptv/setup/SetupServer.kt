@@ -1,0 +1,107 @@
+package com.sparky.iptv.setup
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.net.ConnectivityManager
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
+import com.google.zxing.qrcode.QRCodeWriter
+import com.sparky.iptv.data.Playlist
+import fi.iki.elonen.NanoHTTPD
+import java.net.Inet4Address
+import java.net.NetworkInterface
+
+/**
+ * Tiny web server the phone talks to during setup. It serves the login form and
+ * hands the submitted login to [onSubmit], which returns null on success or an error message.
+ */
+class SetupServer(
+    port: Int,
+    private val deviceName: String,
+    private val onSubmit: (Playlist) -> String?,
+) : NanoHTTPD(port) {
+
+    override fun serve(session: IHTTPSession): Response {
+        return try {
+            if (session.method == Method.POST && session.uri.startsWith("/save")) {
+                session.parseBody(HashMap())
+                @Suppress("DEPRECATION")
+                val f = session.parms
+                val type = if (f["type"] == "m3u") "m3u" else "xtream"
+                val p = Playlist(
+                    type = type,
+                    name = f["name"]?.trim()?.ifBlank { null } ?: "Home",
+                    url = (if (type == "m3u") f["m3u"] else f["url"])?.trim() ?: "",
+                    user = f["user"]?.trim() ?: "",
+                    pass = f["pass"]?.trim() ?: "",
+                )
+                val missing = when {
+                    p.url.isBlank() -> if (type == "m3u") "Enter the playlist link." else "Enter the server URL."
+                    type == "xtream" && (p.user.isBlank() || p.pass.isBlank()) -> "Enter your username and password."
+                    else -> null
+                }
+                val err = missing ?: onSubmit(p)
+                if (err == null) html(SetupPage.done(deviceName)) else html(SetupPage.form(deviceName, p, err))
+            } else {
+                html(SetupPage.form(deviceName, null, null))
+            }
+        } catch (e: Exception) {
+            html(SetupPage.form(deviceName, null, "Something went wrong: ${e.message}"))
+        }
+    }
+
+    private fun html(body: String): Response =
+        newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", body)
+
+    companion object {
+        /** Starts on the first free port from 8080. Returns null if none could be opened. */
+        fun startOnFreePort(deviceName: String, onSubmit: (Playlist) -> String?): SetupServer? {
+            for (port in 8080..8090) {
+                val s = SetupServer(port, deviceName, onSubmit)
+                try {
+                    s.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
+                    return s
+                } catch (_: Exception) {
+                    // port busy, try the next one
+                }
+            }
+            return null
+        }
+    }
+}
+
+object Net {
+    fun localIp(ctx: Context): String? {
+        runCatching {
+            val cm = ctx.getSystemService(ConnectivityManager::class.java)
+            val lp = cm.getLinkProperties(cm.activeNetwork)
+            lp?.linkAddresses?.map { it.address }
+                ?.firstOrNull { it is Inet4Address && !it.isLoopbackAddress }
+                ?.hostAddress?.let { return it }
+        }
+        runCatching {
+            for (ni in NetworkInterface.getNetworkInterfaces().toList()) {
+                if (!ni.isUp || ni.isLoopback) continue
+                for (a in ni.inetAddresses.toList()) {
+                    if (a is Inet4Address && !a.isLoopbackAddress) return a.hostAddress
+                }
+            }
+        }
+        return null
+    }
+}
+
+object Qr {
+    fun bitmap(text: String, size: Int = 480): ImageBitmap {
+        val matrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, size, size, mapOf(EncodeHintType.MARGIN to 0))
+        val px = IntArray(size * size)
+        for (y in 0 until size) for (x in 0 until size) {
+            px[y * size + x] = if (matrix[x, y]) 0xFF0E0F11.toInt() else 0xFFEEEBE5.toInt()
+        }
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        bmp.setPixels(px, 0, size, 0, 0, size, size)
+        return bmp.asImageBitmap()
+    }
+}
