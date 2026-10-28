@@ -1,5 +1,13 @@
 [
   {
+    "version": "1.2",
+    "date": "2026-10-27",
+    "title": "Faster first load",
+    "notes": [
+      "Large playlists load about twice as fast: each list is now read only once"
+    ]
+  },
+  {
     "version": "1.1",
     "date": "2026-10-27",
     "title": "Reliable loading, progress, and one-click updates",

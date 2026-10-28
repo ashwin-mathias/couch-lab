@@ -113,6 +113,8 @@ class Repository(private val ctx: Context, val prefs: Prefs) {
             Triple(3, "get_series_categories", "get_series"),
         )
         var anyOk = false
+        // Keep what each step reads so the lists are only parsed once.
+        val parsed = HashMap<String, List<Any>>()
         for ((step, cats, items) in sections) {
             ensureActive()
             listener.update(step, StepStatus.ACTIVE, "Starting download…")
@@ -122,11 +124,14 @@ class Repository(private val ctx: Context, val prefs: Prefs) {
                     listener.update(step, StepStatus.ACTIVE, "Downloading · ${mb(b)}")
                 }
                 listener.update(step, StepStatus.ACTIVE, "Reading ${mb(tempFile(items).length())}…")
-                val count = when (step) {
-                    1 -> StreamParsers.live(tempFile(items), x, prefs.liveFormat).size
-                    2 -> StreamParsers.movies(tempFile(items), x).size
-                    else -> StreamParsers.series(tempFile(items)).size
+                val list: List<Any> = when (step) {
+                    1 -> StreamParsers.live(tempFile(items), x, prefs.liveFormat)
+                    2 -> StreamParsers.movies(tempFile(items), x)
+                    else -> StreamParsers.series(tempFile(items))
                 }
+                parsed[items] = list
+                parsed[cats] = StreamParsers.categories(tempFile(cats))
+                val count = list.size
                 tempFile(cats).copyTo(cacheFile(cats), overwrite = true)
                 tempFile(items).copyTo(cacheFile(items), overwrite = true)
                 val noun = when (step) { 1 -> "channels"; 2 -> "movies"; else -> "series" }
@@ -144,7 +149,18 @@ class Repository(private val ctx: Context, val prefs: Prefs) {
             }
         }
         if (!anyOk) throw IOException("Couldn't download anything from your provider. Check the server URL and try again.")
-        buildXtream(p) { cacheFile(it) }
+        // Sections that failed fall back to last time's saved copy.
+        @Suppress("UNCHECKED_CAST")
+        fun <T> get(name: String, read: (File) -> List<T>): List<T> =
+            (parsed[name] as? List<T>) ?: read(cacheFile(name))
+        Library(
+            liveCats = get("get_live_categories") { StreamParsers.categories(it) },
+            channels = get("get_live_streams") { StreamParsers.live(it, x, prefs.liveFormat) },
+            vodCats = get("get_vod_categories") { StreamParsers.categories(it) },
+            movies = get("get_vod_streams") { StreamParsers.movies(it, x) },
+            seriesCats = get("get_series_categories") { StreamParsers.categories(it) },
+            series = get("get_series") { StreamParsers.series(it) },
+        )
     }
 
     private fun buildXtream(p: Playlist, file: (String) -> File): Library {
