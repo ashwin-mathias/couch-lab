@@ -17,6 +17,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.widthIn
+import androidx.activity.compose.BackHandler
+import com.sparky.iptv.R
+import com.sparky.iptv.data.Repository
+import com.sparky.iptv.ui.GROUP_ALL
+import com.sparky.iptv.ui.GROUP_FAV
+import com.sparky.iptv.ui.components.Icon
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -54,6 +62,57 @@ private const val HALF_HOUR = 30 * 60_000L
 
 @Composable
 fun GuideScreen(vm: AppViewModel) {
+    var picking by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxSize()) {
+        GuideContent(vm, onPickGroup = { picking = true })
+        if (picking) {
+            GroupPicker(vm, onDone = { picking = false })
+        }
+    }
+}
+
+/** Full list of channel groups. Choosing one also changes the group shown in Live TV. */
+@Composable
+private fun GroupPicker(vm: AppViewModel, onDone: () -> Unit) {
+    BackHandler { onDone() }
+    val groups = liveGroups(vm)
+    val selIndex = groups.indexOfFirst { it.id == vm.liveGroup }.coerceAtLeast(0)
+    val state = rememberLazyListState(initialFirstVisibleItemIndex = (selIndex - 4).coerceAtLeast(0))
+    val sel = remember { FocusRequester() }
+    LaunchedEffect(Unit) { delay(120); runCatching { sel.requestFocus() } }
+    Box(Modifier.fillMaxSize().background(C.Bg.copy(alpha = 0.7f))) {
+        Column(
+            Modifier.fillMaxHeight().width(420.u).background(C.Panel).padding(horizontal = 20.u, vertical = 28.u),
+            verticalArrangement = Arrangement.spacedBy(12.u),
+        ) {
+            T("Choose a group", size = 22, weight = FontWeight.Bold)
+            T("${groups.size - 2} groups · Back to close", size = 13, color = C.Dim)
+            LazyColumn(state = state, verticalArrangement = Arrangement.spacedBy(4.u), contentPadding = PaddingValues(bottom = 24.u)) {
+                itemsIndexed(groups, key = { _, g -> g.id }) { i, g ->
+                    val isSel = g.id == vm.liveGroup
+                    FocusItem(
+                        onClick = { vm.liveGroup = g.id; onDone() },
+                        selected = isSel,
+                        shape = RoundedCornerShape(10.u),
+                        modifier = Modifier.fillMaxWidth().height(46.u).let { if (i == selIndex) it.focusRequester(sel) else it },
+                    ) { f ->
+                        Row(Modifier.fillMaxSize().padding(horizontal = 14.u), verticalAlignment = Alignment.CenterVertically) {
+                            T(
+                                g.name, size = 15, weight = if (isSel || f) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (f) C.OnFocus else if (isSel) C.Text else C.Text2,
+                                modifier = Modifier.weight(1f),
+                            )
+                            T(Repository.fmt(g.count), size = 13, color = if (f) C.OnFocusMuted else C.Dim)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GuideContent(vm: AppViewModel, onPickGroup: () -> Unit) {
     val groups = liveGroups(vm)
     val group = vm.liveGroup
     val channels = remember(vm.library, vm.favorites, group) { vm.channelsFor(group) }
@@ -63,7 +122,7 @@ fun GuideScreen(vm: AppViewModel) {
     var focusedCh by remember { mutableStateOf<Channel?>(null) }
     var focusedProg by remember { mutableStateOf<EpgEntry?>(null) }
     val firstFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(group) {
         delay(150)
         runCatching { firstFocus.requestFocus() }
     }
@@ -75,7 +134,6 @@ fun GuideScreen(vm: AppViewModel) {
                 Row(horizontalArrangement = Arrangement.spacedBy(20.u)) {
                     Label("Guide")
                     Label(fmtDay(now), color = C.Text2)
-                    Label(groups.firstOrNull { it.id == group }?.name ?: "")
                 }
                 val ch = focusedCh
                 val p = focusedProg
@@ -93,11 +151,45 @@ fun GuideScreen(vm: AppViewModel) {
                     T(p!!.description, size = 14, color = C.Muted, maxLines = 2, lineHeight = 1.6f, modifier = Modifier.padding(end = 40.u))
                 }
             }
-            Clock()
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(14.u)) {
+                Clock()
+                Row(horizontalArrangement = Arrangement.spacedBy(10.u)) {
+                    val favOn = group == GROUP_FAV
+                    FocusItem(
+                        onClick = { vm.liveGroup = if (favOn) GROUP_ALL else GROUP_FAV },
+                        selected = favOn,
+                        container = C.Panel,
+                        shape = RoundedCornerShape(999.u),
+                        modifier = Modifier.height(40.u),
+                    ) { f ->
+                        Row(Modifier.align(Alignment.Center).padding(horizontal = 16.u), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(if (favOn) R.drawable.ic_star else R.drawable.ic_star_outline, tint = if (f) C.OnFocus else C.Text, size = 16.u)
+                            Spacer(Modifier.width(8.u))
+                            T("Favorites", size = 14, weight = FontWeight.SemiBold, color = if (f) C.OnFocus else C.Text)
+                        }
+                    }
+                    FocusItem(
+                        onClick = onPickGroup,
+                        container = C.Panel,
+                        shape = RoundedCornerShape(999.u),
+                        modifier = Modifier.height(40.u).widthIn(max = 300.u),
+                    ) { f ->
+                        Row(Modifier.align(Alignment.Center).padding(horizontal = 16.u), verticalAlignment = Alignment.CenterVertically) {
+                            T("Group: ", size = 14, color = if (f) C.OnFocusMuted else C.Dim)
+                            T(groups.firstOrNull { it.id == group }?.name ?: "All channels", size = 14, weight = FontWeight.SemiBold, color = if (f) C.OnFocus else C.Text)
+                            T("  ▾", size = 14, color = if (f) C.OnFocus else C.Dim)
+                        }
+                    }
+                }
+            }
         }
 
         if (channels.isEmpty()) {
-            T("No channels in this group. Pick a group in Live TV.", size = 15, color = C.Muted)
+            T(
+                if (group == GROUP_FAV) "No favorite channels yet. Hold OK on a channel to add it, or choose another group."
+                else "No channels in this group. Choose another group above.",
+                size = 15, color = C.Muted, maxLines = 2,
+            )
             return@Column
         }
 
