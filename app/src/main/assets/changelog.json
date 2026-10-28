@@ -1,5 +1,18 @@
 [
   {
+    "version": "1.1",
+    "date": "2026-10-27",
+    "title": "Reliable loading, progress, and one-click updates",
+    "notes": [
+      "Fixed: the app could close while loading very large playlists",
+      "New loading screen shows each step, megabytes downloaded and item counts",
+      "Each section loads on its own, so one failing list no longer stops the rest",
+      "Updates: the app checks for new versions and installs them with one click",
+      "Diagnostics page with an activity log you can open on your phone",
+      "If the app ever closes unexpectedly, the error is shown on the next launch"
+    ]
+  },
+  {
     "version": "1.0",
     "date": "2026-10-27",
     "title": "First release",

@@ -172,9 +172,19 @@ fun SettingsScreen(vm: AppViewModel) {
         T("Settings", size = 30, weight = FontWeight.Bold)
         Row(horizontalArrangement = Arrangement.spacedBy(48.u)) {
             Column(Modifier.width(520.u), verticalArrangement = Arrangement.spacedBy(10.u)) {
-                SettingRow("Change login", "Scan a QR code and enter a new login on your phone", Modifier.focusRequester(firstFocus)) { vm.changeLogin() }
+                val upd = vm.update
+                if (upd != null) {
+                    SettingRow(
+                        vm.updateProgress ?: "Update available — install now",
+                        "${upd.title}. Downloads and opens Android's installer.",
+                        Modifier.focusRequester(firstFocus), highlight = true,
+                    ) { vm.installUpdate() }
+                }
+                SettingRow("Change login", "Scan a QR code and enter a new login on your phone", if (upd == null) Modifier.focusRequester(firstFocus) else Modifier) { vm.changeLogin() }
                 SettingRow(if (vm.refreshing) "Updating playlist…" else "Update playlist", "Fetch the latest channels, movies and series") { vm.refreshInBackground(showToast = true) }
                 SettingRow("Clear watch history", "Removes resume points for movies and episodes") { vm.clearHistory() }
+                SettingRow("Check for updates", "Looks for a newer version on GitHub") { vm.checkForUpdate(manual = true) }
+                SettingRow("Diagnostics", "Activity log and last error, viewable on your phone") { vm.push(Screen.Diagnostics) }
                 SettingRow("About Sparky IPTV", "Who made it, and what's new in each version") { vm.push(Screen.About) }
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.u)) {
@@ -198,8 +208,8 @@ fun SettingsScreen(vm: AppViewModel) {
 }
 
 @Composable
-private fun SettingRow(title: String, sub: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    FocusItem(onClick = onClick, container = C.Panel, modifier = modifier.fillMaxWidth().height(76.u)) { f ->
+private fun SettingRow(title: String, sub: String, modifier: Modifier = Modifier, highlight: Boolean = false, onClick: () -> Unit) {
+    FocusItem(onClick = onClick, container = if (highlight) C.Raised else C.Panel, modifier = modifier.fillMaxWidth().height(76.u)) { f ->
         Column(Modifier.fillMaxSize().padding(horizontal = 20.u), verticalArrangement = Arrangement.Center) {
             T(title, size = 17, weight = FontWeight.SemiBold, color = if (f) C.OnFocus else C.Text)
             Spacer(Modifier.height(4.u))

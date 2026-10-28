@@ -39,6 +39,7 @@ import com.sparky.iptv.ui.components.T
 import com.sparky.iptv.ui.components.Toast
 import com.sparky.iptv.ui.components.u
 import com.sparky.iptv.ui.screens.AboutScreen
+import com.sparky.iptv.ui.screens.DiagnosticsScreen
 import com.sparky.iptv.ui.screens.GuideScreen
 import com.sparky.iptv.ui.screens.LiveScreen
 import com.sparky.iptv.ui.screens.LoadingScreen
@@ -60,6 +61,7 @@ fun App(vm: AppViewModel) {
                 Screen.Loading -> LoadingScreen(vm)
                 Screen.Home -> HomeScreen(vm)
                 Screen.About -> AboutScreen(vm)
+                Screen.Diagnostics -> DiagnosticsScreen(vm)
                 is Screen.MovieDetail -> MovieDetailScreen(vm, s.movie)
                 is Screen.SeriesDetail -> SeriesDetailScreen(vm, s.series)
                 is Screen.Player -> PlayerScreen(vm, s.request)
@@ -154,7 +156,12 @@ private fun RailButton(e: NavEntry, vm: AppViewModel, expanded: Boolean) {
             Modifier.fillMaxSize().padding(horizontal = 13.u),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(e.icon, tint = if (focused) C.OnFocus else if (selected) C.Text else C.Muted)
+            Box {
+                Icon(e.icon, tint = if (focused) C.OnFocus else if (selected) C.Text else C.Muted)
+                if (e.section == Section.SETTINGS && vm.update != null) {
+                    Box(Modifier.align(Alignment.TopEnd).size(8.u).clip(RoundedCornerShape(50)).background(C.Accent))
+                }
+            }
             if (expanded) {
                 Spacer(Modifier.width(14.u))
                 T(

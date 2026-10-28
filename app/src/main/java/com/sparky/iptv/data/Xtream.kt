@@ -20,6 +20,8 @@ class XtreamClient(private val http: OkHttpClient, private val p: Playlist) {
 
     suspend fun raw(action: String, extra: String = ""): String = getText(http, api("&action=$action$extra"))
 
+    fun apiUrl(action: String, extra: String = ""): String = api("&action=$action$extra")
+
     suspend fun authenticate(): AccountInfo {
         val text = getText(http, api(""))
         val root = runCatching { JSONObject(text) }.getOrNull()

@@ -126,42 +126,6 @@ private fun Step(n: String, text: String) {
 }
 
 @Composable
-fun LoadingScreen(vm: AppViewModel) {
-    val err = vm.loadError
-    val retry = remember { FocusRequester() }
-    Column(
-        Modifier.fillMaxSize().background(C.Bg),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Image(
-            painter = painterResource(R.drawable.logo),
-            contentDescription = null,
-            modifier = Modifier.size(120.u).clip(RoundedCornerShape(28.u)),
-        )
-        Spacer(Modifier.height(28.u))
-        if (err == null) {
-            T("Loading your channels…", size = 20, weight = FontWeight.SemiBold)
-            Spacer(Modifier.height(10.u))
-            T("The first load can take a minute for large playlists.", size = 15, color = C.Muted)
-        } else {
-            T("Couldn't load your playlist", size = 22, weight = FontWeight.Bold)
-            Spacer(Modifier.height(10.u))
-            T(err, size = 15, color = C.Muted, maxLines = 3, modifier = Modifier.widthIn(max = 640.u))
-            Spacer(Modifier.height(28.u))
-            Row(horizontalArrangement = Arrangement.spacedBy(14.u)) {
-                PillButton("Try again", Modifier.focusRequester(retry)) { vm.load() }
-                PillButton("Change login") { vm.changeLogin() }
-            }
-            LaunchedEffect(err) {
-                delay(100)
-                runCatching { retry.requestFocus() }
-            }
-        }
-    }
-}
-
-@Composable
 fun PillButton(
     text: String,
     modifier: Modifier = Modifier,

@@ -5,6 +5,7 @@ import android.os.Build
 import android.provider.Settings
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -15,6 +16,11 @@ import com.sparky.iptv.data.Channel
 import com.sparky.iptv.data.EpgEntry
 import com.sparky.iptv.data.Episode
 import com.sparky.iptv.data.Library
+import com.sparky.iptv.data.AppLog
+import com.sparky.iptv.data.LoadListener
+import com.sparky.iptv.data.LoadStep
+import com.sparky.iptv.data.UpdateInfo
+import com.sparky.iptv.data.Updater
 import com.sparky.iptv.data.Movie
 import com.sparky.iptv.data.MovieInfo
 import com.sparky.iptv.data.Prefs
@@ -38,6 +44,7 @@ sealed interface Screen {
     data object Loading : Screen
     data object Home : Screen
     data object About : Screen
+    data object Diagnostics : Screen
     data class MovieDetail(val movie: Movie) : Screen
     data class SeriesDetail(val series: Series) : Screen
     data class Player(val request: PlayRequest) : Screen
@@ -99,15 +106,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     private var server: SetupServer? = null
 
-    init {
-        if (prefs.playlist == null) {
-            stack.add(Screen.Setup)
-        } else {
-            stack.add(Screen.Loading)
-            load()
-        }
-        if (favorites.any { it.startsWith("live:") }) liveGroup = GROUP_FAV
-    }
 
     // ---------- navigation ----------
     fun push(s: Screen) { stack.add(s) }
@@ -118,21 +116,42 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun resetTo(s: Screen) { stack.clear(); stack.add(s) }
 
     // ---------- loading ----------
+    val loadSteps = mutableStateListOf<LoadStep>()
+    var loadStartedAt by mutableLongStateOf(0L)
+        private set
+
+    private val stepListener = LoadListener { i, status, detail ->
+        viewModelScope.launch(Dispatchers.Main) {
+            if (i in loadSteps.indices) loadSteps[i] = loadSteps[i].copy(status = status, detail = detail)
+        }
+    }
+
     fun load() {
         viewModelScope.launch {
             loadError = null
-            val cached = repo.loadCached()
+            loadSteps.clear()
+            loadSteps.addAll(repo.stepsFor(prefs.playlist))
+            loadStartedAt = System.currentTimeMillis()
+            val cached = try { repo.loadCached() } catch (t: Throwable) { AppLog.e("Saved library unreadable", t); null }
             if (cached != null && !cached.isEmpty) {
                 library = cached
+                AppLog.i("Opened saved library: ${cached.channels.size} channels, ${cached.movies.size} movies, ${cached.series.size} series")
                 resetTo(Screen.Home)
                 refreshInBackground()
+                checkForUpdate()
             } else {
                 try {
                     refreshing = true
-                    library = repo.refresh()
+                    library = repo.refresh(stepListener)
                     resetTo(Screen.Home)
-                } catch (e: Exception) {
-                    loadError = e.message ?: "Couldn't reach your provider."
+                    checkForUpdate()
+                } catch (t: Throwable) {
+                    if (t is kotlinx.coroutines.CancellationException) throw t
+                    AppLog.e("Loading failed", t)
+                    loadError = when (t) {
+                        is OutOfMemoryError -> "Your provider's catalog was too large to load on this device."
+                        else -> t.message ?: "Couldn't reach your provider."
+                    }
                 } finally {
                     refreshing = false
                 }
@@ -147,10 +166,61 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 library = repo.refresh()
                 if (showToast) toast = "Playlist updated"
-            } catch (e: Exception) {
-                if (showToast) toast = "Couldn't update: ${e.message}"
+            } catch (t: Throwable) {
+                if (t is kotlinx.coroutines.CancellationException) throw t
+                AppLog.e("Background update failed", t)
+                if (showToast) toast = "Couldn't update: ${t.message}"
             } finally {
                 refreshing = false
+            }
+        }
+    }
+
+    // ---------- app updates ----------
+    var update by mutableStateOf<UpdateInfo?>(null)
+        private set
+    var updateProgress by mutableStateOf<String?>(null)
+        private set
+    private var updateNoticeShown = false
+
+    fun checkForUpdate(manual: Boolean = false) {
+        viewModelScope.launch {
+            if (manual) toast = "Checking for updates…"
+            val u = Updater.check(getApplication(), repo)
+            update = u
+            if (u != null && (!updateNoticeShown || manual)) {
+                updateNoticeShown = true
+                toast = "Update available — open Settings to install"
+            } else if (u == null && manual) {
+                toast = "You have the latest version"
+            }
+        }
+    }
+
+    fun installUpdate() {
+        val u = update ?: return
+        val app = getApplication<Application>()
+        if (!Updater.canInstall(app)) {
+            toast = "Allow Sparky IPTV to install updates, then press Back"
+            Updater.openInstallPermission(app)
+            return
+        }
+        if (updateProgress != null) return
+        viewModelScope.launch {
+            try {
+                updateProgress = "Starting download…"
+                val f = Updater.apkFile(app)
+                repo.download(u.apkUrl, f) { b ->
+                    viewModelScope.launch(Dispatchers.Main) { updateProgress = "Downloading · ${Repository.mb(b)}" }
+                }
+                AppLog.i("Downloaded update build ${u.build} (${Repository.mb(f.length())})")
+                updateProgress = null
+                Updater.launchInstaller(app)
+            } catch (t: Throwable) {
+                if (t is kotlinx.coroutines.CancellationException) throw t
+                AppLog.e("Update download failed", t)
+                updateProgress = null
+                toast = "Update failed: ${t.message}"
             }
         }
     }
@@ -182,7 +252,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     }
                     null
                 },
-                onFailure = { it.message ?: "Couldn't log in." },
+                onFailure = { AppLog.e("Phone setup login failed", it); it.message ?: "Couldn't log in." },
             )
         }
         server = s
@@ -334,4 +404,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun stopPreview() = PlayerHolder.stop()
+
+    // Runs last, so every property above is ready before loading starts.
+    init {
+        if (prefs.playlist == null) {
+            stack.add(Screen.Setup)
+        } else {
+            stack.add(Screen.Loading)
+            load()
+        }
+        if (favorites.any { it.startsWith("live:") }) liveGroup = GROUP_FAV
+    }
 }

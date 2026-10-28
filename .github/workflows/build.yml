@@ -33,7 +33,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: Sparky IPTV 1.0.${{ github.run_number }}
+          name: Sparky IPTV build ${{ github.run_number }}
           body: |
             Install on Google TV with the Downloader app using:
             https://github.com/${{ github.repository }}/releases/latest/download/sparky-iptv.apk

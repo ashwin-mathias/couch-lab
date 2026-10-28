@@ -111,6 +111,7 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
                         return
                     }
                 }
+                com.sparky.iptv.data.AppLog.e("Live playback failed on channel ${ch.num} ${ch.name}: ${e.errorCodeName}")
                 error = "This channel isn't playing right now."
                 showInfo = true
             }
@@ -273,6 +274,7 @@ private fun VodPlayer(vm: AppViewModel, req: PlayRequest.Vod) {
                 }
             }
             override fun onPlayerError(e: PlaybackException) {
+                com.sparky.iptv.data.AppLog.e("Playback failed for ${item.title}: ${e.errorCodeName}")
                 error = "This title couldn't be played. (${e.errorCodeName})"
             }
         }
