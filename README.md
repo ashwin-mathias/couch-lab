@@ -21,9 +21,9 @@ https://github.com/ashwin-mathias/couch-lab/releases/latest/download/sparky-iptv
 1. On the TV: **Settings → System → About**, click **Android TV OS build** 7 times to turn on Developer mode.
 2. Install **Downloader** (by AFTVnews) from the Play Store.
 3. **Settings → Apps → Security & restrictions → Unknown sources** → turn on **Downloader**.
-4. Open Downloader, enter the link above, and install.
+4. Open Downloader, type the code **6976634** (or the link above), and install.
 
-To update, repeat step 4. Your login and favorites are kept.
+To update, repeat step 4. The code always points to the newest build. Your login and favorites are kept.
 
 ## Remote controls
 
