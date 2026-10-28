@@ -132,6 +132,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             loadSteps.clear()
             loadSteps.addAll(repo.stepsFor(prefs.playlist))
             loadStartedAt = System.currentTimeMillis()
+            val hasSaved = repo.hasCache()
+            if (hasSaved) {
+                loadSteps.clear()
+                loadSteps.add(LoadStep("Opening your saved library", com.sparky.iptv.data.StepStatus.ACTIVE, "Reading…"))
+            }
             val cached = try { repo.loadCached() } catch (t: Throwable) { AppLog.e("Saved library unreadable", t); null }
             if (cached != null && !cached.isEmpty) {
                 library = cached
@@ -140,6 +145,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 refreshInBackground()
                 checkForUpdate()
             } else {
+                if (hasSaved) { loadSteps.clear(); loadSteps.addAll(repo.stepsFor(prefs.playlist)) }
                 try {
                     refreshing = true
                     library = repo.refresh(stepListener)

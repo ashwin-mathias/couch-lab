@@ -99,32 +99,6 @@ object Parsers {
         Category(id, o.s("category_name") ?: "Other")
     }.toList()
 
-    fun live(text: String, x: XtreamClient, fmt: String): List<Channel> = objects(text).mapIndexedNotNull { i, o ->
-        val id = o.s("stream_id") ?: return@mapIndexedNotNull null
-        Channel(
-            id = id,
-            num = o.s("num")?.toDoubleOrNull()?.toInt() ?: (i + 1),
-            name = o.s("name") ?: "Channel ${i + 1}",
-            logo = o.s("stream_icon"),
-            categoryId = o.s("category_id") ?: "",
-            epgId = o.s("epg_channel_id"),
-            url = x.liveUrl(id, fmt),
-        )
-    }.sortedBy { it.num }.toList()
-
-    fun movies(text: String, x: XtreamClient): List<Movie> = objects(text).mapNotNull { o ->
-        val id = o.s("stream_id") ?: return@mapNotNull null
-        Movie(
-            id = id,
-            name = o.s("name") ?: "Untitled",
-            poster = o.s("stream_icon"),
-            categoryId = o.s("category_id") ?: "",
-            rating = o.s("rating")?.takeIf { it != "0" },
-            added = o.s("added")?.toLongOrNull() ?: 0L,
-            url = x.movieUrl(id, o.s("container_extension") ?: "mp4"),
-        )
-    }.toList()
-
     fun series(text: String): List<Series> = objects(text).mapNotNull { o ->
         val id = o.s("series_id") ?: return@mapNotNull null
         Series(

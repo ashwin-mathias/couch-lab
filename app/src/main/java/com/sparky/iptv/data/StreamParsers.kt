@@ -62,9 +62,8 @@ object StreamParsers {
                     num = m["num"]?.toDoubleOrNull()?.toInt() ?: n,
                     name = m["name"] ?: "Channel $n",
                     logo = m["stream_icon"],
-                    categoryId = m["category_id"] ?: "",
+                    categoryId = (m["category_id"] ?: "").intern(),
                     epgId = m["epg_channel_id"],
-                    url = x.liveUrl(id, fmt),
                 )
             )
         }
@@ -81,10 +80,10 @@ object StreamParsers {
                     id = id,
                     name = m["name"] ?: "Untitled",
                     poster = m["stream_icon"],
-                    categoryId = m["category_id"] ?: "",
-                    rating = m["rating"]?.takeIf { it != "0" },
+                    categoryId = (m["category_id"] ?: "").intern(),
+                    rating = m["rating"]?.takeIf { it != "0" }?.intern(),
                     added = m["added"]?.toLongOrNull() ?: 0L,
-                    url = x.movieUrl(id, m["container_extension"] ?: "mp4"),
+                    ext = (m["container_extension"] ?: "mp4").intern(),
                 )
             )
         }
@@ -103,11 +102,11 @@ object StreamParsers {
                     id = id,
                     name = m["name"] ?: "Untitled",
                     cover = m["cover"],
-                    categoryId = m["category_id"] ?: "",
+                    categoryId = (m["category_id"] ?: "").intern(),
                     plot = m["plot"],
                     year = (m["releaseDate"] ?: m["release_date"] ?: m["year"])?.take(4),
                     rating = m["rating"]?.takeIf { it != "0" },
-                    genre = m["genre"],
+                    genre = m["genre"]?.intern(),
                     lastModified = m["last_modified"]?.toLongOrNull() ?: 0L,
                 )
             )

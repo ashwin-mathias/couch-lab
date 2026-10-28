@@ -10,6 +10,27 @@ data class Playlist(
 
 data class Category(val id: String, val name: String)
 
+/**
+ * Builds stream links on demand instead of storing a full link inside every item.
+ * With hundreds of thousands of titles this saves a lot of memory.
+ */
+object StreamUrls {
+    @Volatile private var base = ""
+    @Volatile private var user = ""
+    @Volatile private var pass = ""
+    @Volatile var liveFormat = "m3u8"
+
+    fun set(p: Playlist, fmt: String) {
+        base = XtreamClient.normalizeBase(p.url)
+        user = p.user
+        pass = p.pass
+        liveFormat = fmt
+    }
+
+    fun live(id: String) = "$base/live/$user/$pass/$id.$liveFormat"
+    fun movie(id: String, ext: String) = "$base/movie/$user/$pass/$id.$ext"
+}
+
 data class Channel(
     val id: String,
     val num: Int,
@@ -17,9 +38,10 @@ data class Channel(
     val logo: String?,
     val categoryId: String,
     val epgId: String?,
-    val url: String,
+    val directUrl: String? = null,   // only for M3U playlists
 ) {
     val favKey get() = "live:$id"
+    val url: String get() = directUrl ?: StreamUrls.live(id)
 }
 
 data class Movie(
@@ -29,8 +51,9 @@ data class Movie(
     val categoryId: String,
     val rating: String?,
     val added: Long,
-    val url: String,
+    val ext: String,
 ) {
+    val url: String get() = StreamUrls.movie(id, ext)
     val favKey get() = "movie:$id"
     val progressKey get() = "movie:$id"
 }

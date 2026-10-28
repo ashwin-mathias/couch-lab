@@ -41,6 +41,8 @@ class Repository(private val ctx: Context, val prefs: Prefs) {
     private fun cacheFile(name: String) = File(ctx.filesDir, "cache_$name.json")
     private fun tempFile(name: String) = File(ctx.cacheDir, "dl_$name.json")
 
+    fun hasCache(): Boolean = cacheFile("get_live_streams").exists() || cacheFile("m3u").exists()
+
     fun clearCache() {
         ctx.filesDir.listFiles()?.filter { it.name.startsWith("cache_") }?.forEach { it.delete() }
     }
@@ -50,7 +52,10 @@ class Repository(private val ctx: Context, val prefs: Prefs) {
 
     fun stepsFor(p: Playlist?): List<LoadStep> =
         if (p?.type == "m3u") listOf(LoadStep("Connecting to your playlist"), LoadStep("Channels"))
-        else listOf(LoadStep("Connecting to your provider"), LoadStep("Live TV"), LoadStep("Movies"), LoadStep("Series"))
+        else listOf(
+            LoadStep("Connecting to your provider"), LoadStep("Live TV"), LoadStep("Movies"),
+            LoadStep("Series"), LoadStep("Preparing your library"),
+        )
 
     fun isOnline(): Boolean = runCatching {
         val cm = ctx.getSystemService(ConnectivityManager::class.java)
@@ -68,6 +73,7 @@ class Repository(private val ctx: Context, val prefs: Prefs) {
                 return@runCatching M3u.parse(f.readText())
             }
             if (listFiles.any { !cacheFile(it).exists() }) return@runCatching null
+            StreamUrls.set(p, prefs.liveFormat)
             buildXtream(p) { cacheFile(it) }
         }.onFailure { AppLog.e("Reading saved library failed", it) }.getOrNull()
     }
@@ -98,6 +104,7 @@ class Repository(private val ctx: Context, val prefs: Prefs) {
             val acct = x.authenticate()
             prefs.account = acct
             prefs.liveFormat = acct.liveFormat
+            StreamUrls.set(p, acct.liveFormat)
             listener.update(0, StepStatus.DONE, acct.status ?: "Signed in")
             AppLog.i("Signed in · status ${acct.status} · format ${acct.liveFormat}")
         } catch (e: Exception) {
@@ -149,11 +156,12 @@ class Repository(private val ctx: Context, val prefs: Prefs) {
             }
         }
         if (!anyOk) throw IOException("Couldn't download anything from your provider. Check the server URL and try again.")
+        listener.update(4, StepStatus.ACTIVE, "Organizing…")
         // Sections that failed fall back to last time's saved copy.
         @Suppress("UNCHECKED_CAST")
         fun <T> get(name: String, read: (File) -> List<T>): List<T> =
             (parsed[name] as? List<T>) ?: read(cacheFile(name))
-        Library(
+        val lib = Library(
             liveCats = get("get_live_categories") { StreamParsers.categories(it) },
             channels = get("get_live_streams") { StreamParsers.live(it, x, prefs.liveFormat) },
             vodCats = get("get_vod_categories") { StreamParsers.categories(it) },
@@ -161,6 +169,9 @@ class Repository(private val ctx: Context, val prefs: Prefs) {
             seriesCats = get("get_series_categories") { StreamParsers.categories(it) },
             series = get("get_series") { StreamParsers.series(it) },
         )
+        parsed.clear()
+        listener.update(4, StepStatus.DONE, "${fmt(lib.channels.size + lib.movies.size + lib.series.size)} items")
+        lib
     }
 
     private fun buildXtream(p: Playlist, file: (String) -> File): Library {
@@ -279,7 +290,7 @@ object M3u {
                             logo = attrs["tvg-logo"]?.ifBlank { null },
                             categoryId = catId,
                             epgId = attrs["tvg-id"],
-                            url = line,
+                            directUrl = line,
                         )
                     )
                     pendingAttrs = null
