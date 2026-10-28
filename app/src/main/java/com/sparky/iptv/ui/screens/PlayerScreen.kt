@@ -73,19 +73,17 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
     var infoTick by remember { mutableIntStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
     var triedFallback by remember { mutableStateOf(false) }
-    var listOpen by remember { mutableStateOf(false) }
     val ch = channels[index]
     val now = rememberNow(15_000L)
     val focus = remember { FocusRequester() }
 
-    // Back (or ◀) returns to the channel list. On Live TV the stream keeps playing in the preview.
+    // Back (or ◀) returns to the page you came from. Pages with a preview keep the stream playing there.
     fun leave() {
-        if (vm.section != Section.LIVE) PlayerHolder.stop()
+        val hasPreview = vm.section in setOf(Section.LIVE, Section.FAVORITES, Section.RECENT)
+        if (hasPreview) vm.liveHandoff = true else PlayerHolder.stop()
         vm.pop()
     }
     BackHandler { leave() }
-    // Registered after the one above, so Back closes the channel list first.
-    BackHandler(enabled = listOpen) { listOpen = false }
 
     LaunchedEffect(ch.id) {
         error = null
@@ -133,11 +131,9 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
         player.addListener(l)
         onDispose { player.removeListener(l) }
     }
-    LaunchedEffect(listOpen) {
-        if (!listOpen) {
-            delay(80)
-            runCatching { focus.requestFocus() }
-        }
+    LaunchedEffect(Unit) {
+        delay(80)
+        runCatching { focus.requestFocus() }
     }
 
     fun switchTo(i: Int) {
@@ -153,7 +149,6 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
             .focusRequester(focus)
             .focusable()
             .onPreviewKeyEvent { ev ->
-                if (listOpen) return@onPreviewKeyEvent false
                 val code = ev.nativeKeyEvent.keyCode
                 when (ev.type) {
                     KeyEventType.KeyDown -> when (code) {
@@ -175,12 +170,8 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
                     KeyEventType.KeyUp -> when (code) {
                         AKey.KEYCODE_DPAD_CENTER, AKey.KEYCODE_ENTER, AKey.KEYCODE_NUMPAD_ENTER -> {
                             val held = ev.nativeKeyEvent.eventTime - ev.nativeKeyEvent.downTime
-                            if (held > 600) {
-                                vm.toggleFavorite(ch.favKey, ch.display)
-                            } else {
-                                listOpen = true
-                                showInfo = false
-                            }
+                            // Hold OK toggles the favorite; a short press does nothing.
+                            if (held > 600) vm.toggleFavorite(ch.favKey, ch.display)
                             true
                         }
                         else -> false
@@ -237,78 +228,12 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
                     }
                     Row {
                         T(next?.let { "Next · ${fmtClock(it.start)}  ${it.title}" } ?: "", size = 13, color = C.Dim, modifier = Modifier.weight(1f))
-                        T("OK Channel list   ·   ▲▼ Change channel   ·   ◀ Back   ·   ▶ Info   ·   Hold OK ♥", size = 13, color = C.Dim)
+                        T("▲▼ Change channel   ·   ◀ Back   ·   ▶ Info   ·   Hold OK ♥", size = 13, color = C.Dim)
                     }
                 }
             }
         }
 
-        if (listOpen) {
-            ChannelOverlay(
-                vm = vm,
-                channels = channels,
-                current = index,
-                onPick = { i -> switchTo(i); listOpen = false },
-                modifier = Modifier.align(Alignment.CenterStart),
-            )
-        }
-    }
-}
-
-/** Slim channel list over the video, so you can switch without leaving full screen. */
-@Composable
-private fun ChannelOverlay(
-    vm: AppViewModel,
-    channels: List<com.sparky.iptv.data.Channel>,
-    current: Int,
-    onPick: (Int) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val now = rememberNow()
-    val state = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = (current - 4).coerceAtLeast(0))
-    val sel = remember { FocusRequester() }
-    LaunchedEffect(Unit) {
-        delay(80)
-        runCatching { sel.requestFocus() }
-    }
-    Column(
-        modifier.fillMaxHeight().width(500.u).background(C.Bg.copy(alpha = 0.94f))
-            .padding(start = 28.u, end = 20.u, top = 32.u),
-        verticalArrangement = Arrangement.spacedBy(12.u),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            com.sparky.iptv.ui.components.Label("Channels", modifier = Modifier.weight(1f))
-            T("Hold OK ♥  ·  Back to close", size = 12, color = C.Dim)
-        }
-        androidx.compose.foundation.lazy.LazyColumn(
-            state = state,
-            verticalArrangement = Arrangement.spacedBy(4.u),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 28.u),
-        ) {
-            items(channels.size, key = { "$it:" + (channels[it].id) }) { i ->
-                val c = channels[i]
-                LaunchedEffect(c.id) { vm.ensureEpg(c) }
-                val (cur, _) = vm.nowNext(c.id, now)
-                val isCur = i == current
-                com.sparky.iptv.ui.components.FocusItem(
-                    onClick = { onPick(i) },
-                    onLongClick = { vm.toggleFavorite(c.favKey, c.display) },
-                    selected = isCur,
-                    modifier = Modifier.fillMaxWidth().height(58.u).let { if (isCur) it.focusRequester(sel) else it },
-                ) { f ->
-                    Row(Modifier.fillMaxSize().padding(horizontal = 12.u), verticalAlignment = Alignment.CenterVertically) {
-                        T(c.num.toString(), size = 13, weight = FontWeight.SemiBold, color = if (f) C.OnFocusMuted else C.Dim, modifier = Modifier.width(46.u))
-                        ChannelLogo(c.display, c.logo, 36.u, focused = f)
-                        Spacer(Modifier.width(12.u))
-                        Column(Modifier.weight(1f)) {
-                            T(c.display, size = 15, weight = FontWeight.SemiBold, color = if (f) C.OnFocus else C.Text)
-                            if (cur != null) T(cur.title, size = 12, color = if (f) C.OnFocusMuted else C.Dim)
-                        }
-                        if (c.favKey in vm.favorites) Icon(R.drawable.ic_star, tint = if (f) C.OnFocus else C.Text2, size = 13.u)
-                    }
-                }
-            }
-        }
     }
 }
 

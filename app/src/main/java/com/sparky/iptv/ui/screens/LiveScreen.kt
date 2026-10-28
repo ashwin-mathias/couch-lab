@@ -84,19 +84,7 @@ fun LiveScreen(vm: AppViewModel) {
     val previewCh = focused ?: channels.firstOrNull { !it.divider }
     val tiles = toggleable(group) && vm.isTiles(group)
 
-    // Start the small preview a moment after the highlight settles on a channel.
-    LaunchedEffect(focused?.id) {
-        val ch = focused ?: return@LaunchedEffect
-        delay(700)
-        PlayerHolder.play(ctx, ch.url)
-    }
-    DisposableEffect(Unit) {
-        vm.liveHandoff = false
-        onDispose {
-            if (!vm.liveHandoff) PlayerHolder.stop()
-            vm.liveHandoff = false
-        }
-    }
+    PreviewDriver(vm, focused)
 
     Row(Modifier.fillMaxSize()) {
         GroupList(vm, groups, group, modifier = Modifier.width(270.u))
@@ -139,7 +127,7 @@ fun LiveScreen(vm: AppViewModel) {
             }
         }
         Box(Modifier.width(1.u).fillMaxHeight().background(C.Line))
-        PreviewPane(vm, previewCh, hasFocus = focused != null, modifier = Modifier.weight(1f))
+        ChannelPreviewPane(vm, previewCh, hasFocus = focused != null, modifier = Modifier.weight(1f))
     }
 }
 
@@ -302,63 +290,3 @@ private fun TileGrid(vm: AppViewModel, channels: List<Channel>, onFocus: (Channe
     }
 }
 
-@Composable
-private fun PreviewPane(vm: AppViewModel, ch: Channel?, hasFocus: Boolean, modifier: Modifier) {
-    val now = rememberNow()
-    Column(modifier.fillMaxHeight().padding(horizontal = 28.u, vertical = 28.u), verticalArrangement = Arrangement.spacedBy(20.u)) {
-        Row(Modifier.fillMaxWidth()) {
-            Spacer(Modifier.weight(1f))
-            if (vm.refreshing) {
-                T("Updating…", size = 13, color = C.Dim, modifier = Modifier.padding(end = 16.u))
-            }
-            Clock()
-        }
-        Box(
-            Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(14.u)).background(C.Panel),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (hasFocus && ch != null) {
-                PlayerSurface(Modifier.fillMaxSize())
-            } else {
-                Label("Live preview")
-            }
-            Row(
-                Modifier.align(Alignment.TopStart).padding(12.u).clip(RoundedCornerShape(999.u)).background(C.Bg)
-                    .padding(horizontal = 10.u, vertical = 4.u),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(Modifier.size(7.u).clip(CircleShape).background(C.Accent))
-                Spacer(Modifier.width(6.u))
-                T("LIVE", size = 11, weight = FontWeight.Bold, letterSpacing = 0.08f)
-            }
-        }
-        if (ch == null) return@Column
-        val (cur, next) = vm.nowNext(ch.id, now)
-        Column(verticalArrangement = Arrangement.spacedBy(8.u)) {
-            Label(
-                if (cur != null) "Now · ${fmtShort(cur.start)} – ${fmtClock(cur.end)}" else "${ch.num} · ${ch.display}"
-            )
-            T(cur?.title ?: ch.display, size = 24, weight = FontWeight.Bold, maxLines = 2)
-            if (cur != null) {
-                val frac = (now - cur.start).toFloat() / (cur.end - cur.start).coerceAtLeast(1)
-                ProgressBar(frac, track = C.Line, fill = C.Text)
-                if (cur.description.isNotBlank()) {
-                    T(cur.description, size = 14, color = C.Muted, maxLines = 3, lineHeight = 1.55f, modifier = Modifier.padding(top = 6.u))
-                }
-            } else {
-                T("No guide information for this channel.", size = 14, color = C.Muted)
-            }
-        }
-        Spacer(Modifier.weight(1f))
-        Box(Modifier.fillMaxWidth().height(1.u).background(C.Line))
-        Row(verticalAlignment = Alignment.Bottom) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.u)) {
-                if (next != null) {
-                    Label("Next · ${fmtClock(next.start)}")
-                    T(next.title, size = 16, weight = FontWeight.SemiBold)
-                }
-            }
-            T("OK to watch", size = 13, color = C.Dim)
-        }
-    }
-}

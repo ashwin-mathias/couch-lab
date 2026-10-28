@@ -108,7 +108,8 @@ fun HomeScreen(vm: AppViewModel) {
             }
         }
     }
-    Row(Modifier.fillMaxSize()) {
+    // Keep everything inside the TV's safe area: many TVs crop the outer few percent of the picture.
+    Row(Modifier.fillMaxSize().padding(start = 36.u, end = 24.u, top = 16.u, bottom = 16.u)) {
         NavRail(vm)
         Box(Modifier.weight(1f).fillMaxHeight()) {
             when (vm.section) {

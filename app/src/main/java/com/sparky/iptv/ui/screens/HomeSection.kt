@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -35,7 +34,9 @@ import com.sparky.iptv.ui.components.u
 import kotlinx.coroutines.delay
 import java.util.Calendar
 
-/** The start screen: recently watched, favorites and what's new, as rows of tiles. */
+private val ROW_PADDING = PaddingValues(start = 8.u, end = 48.u, top = 8.u, bottom = 8.u)
+
+/** The start screen: Favorites, then Recently watched, then Recently added. */
 @Composable
 fun HomeSection(vm: AppViewModel) {
     val now = rememberNow()
@@ -43,10 +44,11 @@ fun HomeSection(vm: AppViewModel) {
     val favChannels = remember(vm.library, vm.favorites) { vm.library.channels.filter { it.favKey in vm.favorites } }
     val favMovies = remember(vm.library, vm.favorites) { vm.library.movies.filter { it.favKey in vm.favorites } }
     val favSeries = remember(vm.library, vm.favorites) { vm.library.series.filter { it.favKey in vm.favorites } }
-    val resume = remember(vm.library, vm.progressVersion) { vm.continueWatching() }
     val newMovies = remember(vm.library, vm.myRegions) { vm.moviesFor(CAT_RECENT).take(20) }
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(200); runCatching { first.requestFocus() } }
+    // Stops the tile preview when leaving Home (unless full screen takes over the stream).
+    PreviewDriver(vm, null)
 
     val greeting = remember(now / 3_600_000) {
         when (Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) {
@@ -55,16 +57,23 @@ fun HomeSection(vm: AppViewModel) {
             else -> "Good evening"
         }
     }
-    var firstAssigned = false
-    fun takeFirst(): Modifier = if (!firstAssigned) { firstAssigned = true; Modifier.focusRequester(first) } else Modifier
+    val hasFavs = favChannels.isNotEmpty() || favMovies.isNotEmpty() || favSeries.isNotEmpty()
+    // The first row on screen receives the initial focus.
+    val firstRow = when {
+        hasFavs -> "fav"
+        recents.isNotEmpty() -> "recent"
+        newMovies.isNotEmpty() -> "new"
+        else -> "empty"
+    }
+    fun focusMod(row: String, i: Int): Modifier = if (row == firstRow && i == 0) Modifier.focusRequester(first) else Modifier
 
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 48.u, top = 32.u, bottom = 48.u),
-        verticalArrangement = Arrangement.spacedBy(30.u),
+        contentPadding = PaddingValues(start = 40.u, top = 24.u, bottom = 48.u),
+        verticalArrangement = Arrangement.spacedBy(26.u),
     ) {
         item {
-            Row(Modifier.fillMaxWidth().padding(end = 48.u), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(start = 8.u, end = 48.u), verticalAlignment = Alignment.CenterVertically) {
                 T(greeting, size = 30, weight = FontWeight.Bold)
                 Spacer(Modifier.weight(1f))
                 if (vm.refreshing) T("Updating playlist…", size = 13, color = C.Dim, modifier = Modifier.padding(end = 16.u))
@@ -72,18 +81,46 @@ fun HomeSection(vm: AppViewModel) {
             }
         }
 
+        // 1. Favorites: channels (live tiles), then movies and series.
+        if (hasFavs) {
+            item {
+                HomeRow("Favorites") {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(20.u), contentPadding = ROW_PADDING) {
+                        itemsIndexed(favChannels, key = { idx, c -> "c$idx:${c.id}" }) { i, ch ->
+                            ChannelTile(vm, ch, now, 220.u, modifier = focusMod("fav", i), livePreview = true,
+                                onClick = { vm.playLive(favChannels, i) })
+                        }
+                        itemsIndexed(favMovies, key = { idx, x -> "m$idx:${x.id}" }) { i, mv ->
+                            Column(focusMod("fav", favChannels.size + i)) {
+                                PosterCard(mv.name, mv.poster, 132.u, true,
+                                    progress = vm.progress(mv.progressKey)?.fraction,
+                                    onClick = { vm.push(Screen.MovieDetail(mv)) },
+                                    onLongClick = { vm.toggleFavorite(mv.favKey, mv.name) })
+                            }
+                        }
+                        itemsIndexed(favSeries, key = { idx, x -> "s$idx:${x.id}" }) { i, sr ->
+                            Column(focusMod("fav", favChannels.size + favMovies.size + i)) {
+                                PosterCard(sr.name, sr.cover, 132.u, true,
+                                    onClick = { vm.push(Screen.SeriesDetail(sr)) },
+                                    onLongClick = { vm.toggleFavorite(sr.favKey, sr.name) })
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Recently watched: channels, movies (with progress) and series, newest first.
         if (recents.isNotEmpty()) {
-            val m = takeFirst()
             item {
                 HomeRow("Recently watched") {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(20.u), contentPadding = PaddingValues(end = 48.u)) {
-                        itemsIndexed(recents) { i, e ->
-                            val mod = if (i == 0) m else Modifier
+                    val liveList = recents.filterIsInstance<AppViewModel.RecentEntry.Ch>().map { it.channel }
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(20.u), contentPadding = ROW_PADDING) {
+                        itemsIndexed(recents, key = { idx, _ -> "r$idx" }) { i, e ->
+                            val mod = focusMod("recent", i)
                             when (e) {
-                                is AppViewModel.RecentEntry.Ch -> ChannelTile(vm, e.channel, now, 220.u, modifier = mod, onClick = {
-                                    val list = recents.filterIsInstance<AppViewModel.RecentEntry.Ch>().map { it.channel }
-                                    vm.playLive(list, list.indexOf(e.channel))
-                                })
+                                is AppViewModel.RecentEntry.Ch -> ChannelTile(vm, e.channel, now, 220.u, modifier = mod, livePreview = true,
+                                    onClick = { vm.playLive(liveList, liveList.indexOf(e.channel)) })
                                 is AppViewModel.RecentEntry.Mv -> Column(mod) {
                                     PosterCard(e.movie.name, e.movie.poster, 132.u, e.movie.favKey in vm.favorites,
                                         progress = vm.progress(e.movie.progressKey)?.fraction,
@@ -102,67 +139,13 @@ fun HomeSection(vm: AppViewModel) {
             }
         }
 
-        if (favChannels.isNotEmpty()) {
-            val m = takeFirst()
-            item {
-                HomeRow("Favorite channels") {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(20.u), contentPadding = PaddingValues(end = 48.u)) {
-                        itemsIndexed(favChannels, key = { idx, c -> "$idx:" + (c.id) }) { i, ch ->
-                            ChannelTile(vm, ch, now, 220.u, modifier = if (i == 0) m else Modifier, onClick = { vm.playLive(favChannels, i) })
-                        }
-                    }
-                }
-            }
-        }
-
-        if (resume.isNotEmpty()) {
-            val m = takeFirst()
-            item {
-                HomeRow("Continue watching") {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(20.u), contentPadding = PaddingValues(end = 48.u)) {
-                        itemsIndexed(resume, key = { idx, p -> "$idx:" + (p.first.id) }) { i, (mv, p) ->
-                            Column(if (i == 0) m else Modifier) {
-                                PosterCard(mv.name, mv.poster, 132.u, mv.favKey in vm.favorites, progress = p.fraction,
-                                    onClick = { vm.playMovie(mv, fromStart = false) },
-                                    onLongClick = { vm.push(Screen.MovieDetail(mv)) })
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if (favMovies.isNotEmpty() || favSeries.isNotEmpty()) {
-            val m = takeFirst()
-            item {
-                HomeRow("Favorite movies & series") {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(20.u), contentPadding = PaddingValues(end = 48.u)) {
-                        itemsIndexed(favMovies, key = { idx, x -> "$idx:" + ("m" + x.id) }) { i, mv ->
-                            Column(if (i == 0) m else Modifier) {
-                                PosterCard(mv.name, mv.poster, 132.u, true,
-                                    onClick = { vm.push(Screen.MovieDetail(mv)) },
-                                    onLongClick = { vm.toggleFavorite(mv.favKey, mv.name) })
-                            }
-                        }
-                        itemsIndexed(favSeries, key = { idx, x -> "$idx:" + ("s" + x.id) }) { i, sr ->
-                            Column(if (i == 0 && favMovies.isEmpty()) m else Modifier) {
-                                PosterCard(sr.name, sr.cover, 132.u, true,
-                                    onClick = { vm.push(Screen.SeriesDetail(sr)) },
-                                    onLongClick = { vm.toggleFavorite(sr.favKey, sr.name) })
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
+        // 3. Recently added movies.
         if (newMovies.isNotEmpty()) {
-            val m = takeFirst()
             item {
-                HomeRow("Recently added movies") {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(20.u), contentPadding = PaddingValues(end = 48.u)) {
-                        itemsIndexed(newMovies, key = { idx, x -> "$idx:" + (x.id) }) { i, mv ->
-                            Column(if (i == 0) m else Modifier) {
+                HomeRow("Recently added") {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(20.u), contentPadding = ROW_PADDING) {
+                        itemsIndexed(newMovies, key = { idx, x -> "n$idx:${x.id}" }) { i, mv ->
+                            Column(focusMod("new", i)) {
                                 PosterCard(mv.name, mv.poster, 132.u, mv.favKey in vm.favorites,
                                     onClick = { vm.push(Screen.MovieDetail(mv)) },
                                     onLongClick = { vm.toggleFavorite(mv.favKey, mv.name) })
@@ -171,18 +154,24 @@ fun HomeSection(vm: AppViewModel) {
                     }
                 }
             }
+        } else if (vm.vodLoading) {
+            item {
+                HomeRow("Recently added") {
+                    T("Loading movies… ${vm.vodProgress ?: ""}", size = 14, color = C.Dim, modifier = Modifier.padding(start = 8.u))
+                }
+            }
         }
 
-        if (recents.isEmpty() && favChannels.isEmpty()) {
+        if (firstRow == "empty" && !vm.vodLoading) {
             item {
-                Column(Modifier.padding(end = 48.u), verticalArrangement = Arrangement.spacedBy(14.u)) {
+                Column(Modifier.padding(start = 8.u, end = 48.u), verticalArrangement = Arrangement.spacedBy(14.u)) {
                     T("Your channels will appear here", size = 20, weight = FontWeight.SemiBold)
                     T(
                         "Watch something, or hold OK on any channel, movie or series to add it to Favorites.",
                         size = 15, color = C.Muted, maxLines = 2,
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(12.u)) {
-                        PillButton("Browse Live TV", takeFirst(), primary = true) { vm.section = Section.LIVE }
+                        PillButton("Browse Live TV", Modifier.focusRequester(first), primary = true) { vm.section = Section.LIVE }
                         PillButton("Movies") { vm.section = Section.MOVIES }
                     }
                 }
@@ -193,8 +182,8 @@ fun HomeSection(vm: AppViewModel) {
 
 @Composable
 private fun HomeRow(title: String, content: @Composable () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(14.u)) {
-        Label(title, color = C.Muted)
+    Column(verticalArrangement = Arrangement.spacedBy(10.u)) {
+        Label(title, color = C.Muted, modifier = Modifier.padding(start = 8.u))
         content()
     }
 }

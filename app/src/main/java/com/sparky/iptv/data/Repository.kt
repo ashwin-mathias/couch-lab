@@ -32,19 +32,16 @@ class Repository(private val ctx: Context, val prefs: Prefs) {
         .retryOnConnectionFailure(true)
         .build()
 
-    private val listFiles = listOf(
-        "get_live_categories", "get_live_streams",
-        "get_vod_categories", "get_vod_streams",
-        "get_series_categories", "get_series",
-    )
-
     private fun cacheFile(name: String) = File(ctx.filesDir, "cache_$name.json")
     private fun tempFile(name: String) = File(ctx.cacheDir, "dl_$name.json")
+    private val snapLive get() = File(ctx.filesDir, "snap_live.bin")
+    private val snapMovies get() = File(ctx.filesDir, "snap_movies.bin")
+    private val snapSeries get() = File(ctx.filesDir, "snap_series.bin")
 
-    fun hasCache(): Boolean = cacheFile("get_live_streams").exists() || cacheFile("m3u").exists()
+    fun hasCache(): Boolean = snapLive.exists() || cacheFile("get_live_streams").exists() || cacheFile("m3u").exists()
 
     fun clearCache() {
-        ctx.filesDir.listFiles()?.filter { it.name.startsWith("cache_") }?.forEach { it.delete() }
+        ctx.filesDir.listFiles()?.filter { it.name.startsWith("cache_") || it.name.startsWith("snap_") }?.forEach { it.delete() }
     }
 
     private fun xtream(): XtreamClient? =
@@ -63,8 +60,11 @@ class Repository(private val ctx: Context, val prefs: Prefs) {
         caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
     }.getOrDefault(true)
 
-    /** Fast start: build the library from the copy saved last time. */
-    suspend fun loadCached(): Library? = withContext(Dispatchers.IO) {
+    /**
+     * Fast start, step 1: only the live channels (small), so Home can open right away.
+     * Uses the compact saved copy; converts the old raw copy the first time.
+     */
+    suspend fun loadCachedLive(onProgress: (String) -> Unit = {}): Library? = withContext(Dispatchers.IO) {
         runCatching {
             val p = prefs.playlist ?: return@runCatching null
             if (p.type == "m3u") {
@@ -72,11 +72,62 @@ class Repository(private val ctx: Context, val prefs: Prefs) {
                 if (!f.exists()) return@runCatching null
                 return@runCatching M3u.parse(f.readText())
             }
-            if (listFiles.any { !cacheFile(it).exists() }) return@runCatching null
             StreamUrls.set(p, prefs.liveFormat)
-            buildXtream(p) { cacheFile(it) }
-        }.onFailure { AppLog.e("Reading saved library failed", it) }.getOrNull()
+            val t0 = System.currentTimeMillis()
+            val live = Snapshot.readLive(snapLive) { i, n -> onProgress("Channels ${pct(i, n)}") }
+                ?: migrate("get_live_categories", "get_live_streams") { cats, items ->
+                    val l = StreamParsers.categories(cats) to StreamParsers.live(items, XtreamClient(http, p), prefs.liveFormat)
+                    Snapshot.writeLive(snapLive, l.first, l.second)
+                    l
+                }
+                ?: return@runCatching null
+            AppLog.i("Opened saved channels: ${live.second.size} in ${System.currentTimeMillis() - t0} ms")
+            Library(live.first, live.second, emptyList(), emptyList(), emptyList(), emptyList())
+        }.onFailure { AppLog.e("Reading saved channels failed", it) }.getOrNull()
     }
+
+    /** Fast start, step 2 (in the background): movies and series from the saved copy. */
+    suspend fun loadCachedVod(base: Library, onProgress: (String) -> Unit = {}): Library = withContext(Dispatchers.IO) {
+        val p = prefs.playlist ?: return@withContext base
+        if (p.type == "m3u") return@withContext base
+        val t0 = System.currentTimeMillis()
+        val movies = runCatching {
+            Snapshot.readMovies(snapMovies) { i, n -> onProgress("Movies ${pct(i, n)}") }
+                ?: migrate("get_vod_categories", "get_vod_streams") { cats, items ->
+                    val l = StreamParsers.categories(cats) to StreamParsers.movies(items, XtreamClient(http, p))
+                    Snapshot.writeMovies(snapMovies, l.first, l.second)
+                    l
+                }
+        }.onFailure { AppLog.e("Reading saved movies failed", it) }.getOrNull()
+        val series = runCatching {
+            Snapshot.readSeries(snapSeries) { i, n -> onProgress("Series ${pct(i, n)}") }
+                ?: migrate("get_series_categories", "get_series") { cats, items ->
+                    val l = StreamParsers.categories(cats) to StreamParsers.series(items)
+                    Snapshot.writeSeries(snapSeries, l.first, l.second)
+                    l
+                }
+        }.onFailure { AppLog.e("Reading saved series failed", it) }.getOrNull()
+        AppLog.i("Opened saved movies/series: ${movies?.second?.size ?: 0} / ${series?.second?.size ?: 0} in ${System.currentTimeMillis() - t0} ms")
+        Library(
+            base.liveCats, base.channels,
+            movies?.first ?: emptyList(), movies?.second ?: emptyList(),
+            series?.first ?: emptyList(), series?.second ?: emptyList(),
+        )
+    }
+
+    /** One-time move from the old raw saved lists to the compact format; frees the space afterwards. */
+    private fun <T> migrate(cats: String, items: String, convert: (File, File) -> T): T? {
+        val c = cacheFile(cats)
+        val i = cacheFile(items)
+        if (!c.exists() || !i.exists()) return null
+        AppLog.i("Converting saved $items to the compact format")
+        val r = convert(c, i)
+        c.delete()
+        i.delete()
+        return r
+    }
+
+    private fun pct(i: Int, n: Int) = if (n > 0) "${(i * 100L / n)}%" else ""
 
     /** Downloads fresh lists one at a time, reporting progress, then saves them for next launch. */
     suspend fun refresh(listener: LoadListener = LoadListener { _, _, _ -> }): Library = withContext(Dispatchers.IO) {
@@ -131,19 +182,22 @@ class Repository(private val ctx: Context, val prefs: Prefs) {
                     listener.update(step, StepStatus.ACTIVE, "Downloading · ${mb(b)}")
                 }
                 listener.update(step, StepStatus.ACTIVE, "Reading ${mb(tempFile(items).length())}…")
+                val catList = StreamParsers.categories(tempFile(cats))
                 val list: List<Any> = when (step) {
-                    1 -> StreamParsers.live(tempFile(items), x, prefs.liveFormat)
-                    2 -> StreamParsers.movies(tempFile(items), x)
-                    else -> StreamParsers.series(tempFile(items))
+                    1 -> StreamParsers.live(tempFile(items), x, prefs.liveFormat).also { Snapshot.writeLive(snapLive, catList, it) }
+                    2 -> StreamParsers.movies(tempFile(items), x).also { Snapshot.writeMovies(snapMovies, catList, it) }
+                    else -> StreamParsers.series(tempFile(items)).also { Snapshot.writeSeries(snapSeries, catList, it) }
                 }
                 parsed[items] = list
-                parsed[cats] = StreamParsers.categories(tempFile(cats))
+                parsed[cats] = catList
                 val count = list.size
-                tempFile(cats).copyTo(cacheFile(cats), overwrite = true)
-                tempFile(items).copyTo(cacheFile(items), overwrite = true)
+                val raw = tempFile(items).length()
+                // The compact copy replaces the old raw copies.
+                cacheFile(cats).delete()
+                cacheFile(items).delete()
                 val noun = when (step) { 1 -> "channels"; 2 -> "movies"; else -> "series" }
                 listener.update(step, StepStatus.DONE, "${fmt(count)} $noun")
-                AppLog.i("$items: ${fmt(count)} $noun (${mb(cacheFile(items).length())})")
+                AppLog.i("$items: ${fmt(count)} $noun (${mb(raw)})")
                 anyOk = true
             } catch (e: Throwable) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
@@ -159,32 +213,21 @@ class Repository(private val ctx: Context, val prefs: Prefs) {
         listener.update(4, StepStatus.ACTIVE, "Organizing…")
         // Sections that failed fall back to last time's saved copy.
         @Suppress("UNCHECKED_CAST")
-        fun <T> get(name: String, read: (File) -> List<T>): List<T> =
-            (parsed[name] as? List<T>) ?: read(cacheFile(name))
+        fun <T> got(name: String): List<T>? = parsed[name] as? List<T>
+        val live = if (got<Channel>("get_live_streams") != null) null else runCatching { Snapshot.readLive(snapLive) }.getOrNull()
+        val mov = if (got<Movie>("get_vod_streams") != null) null else runCatching { Snapshot.readMovies(snapMovies) }.getOrNull()
+        val ser = if (got<Series>("get_series") != null) null else runCatching { Snapshot.readSeries(snapSeries) }.getOrNull()
         val lib = Library(
-            liveCats = get("get_live_categories") { StreamParsers.categories(it) },
-            channels = get("get_live_streams") { StreamParsers.live(it, x, prefs.liveFormat) },
-            vodCats = get("get_vod_categories") { StreamParsers.categories(it) },
-            movies = get("get_vod_streams") { StreamParsers.movies(it, x) },
-            seriesCats = get("get_series_categories") { StreamParsers.categories(it) },
-            series = get("get_series") { StreamParsers.series(it) },
+            liveCats = got<Category>("get_live_categories") ?: live?.first ?: emptyList(),
+            channels = got<Channel>("get_live_streams") ?: live?.second ?: emptyList(),
+            vodCats = got<Category>("get_vod_categories") ?: mov?.first ?: emptyList(),
+            movies = got<Movie>("get_vod_streams") ?: mov?.second ?: emptyList(),
+            seriesCats = got<Category>("get_series_categories") ?: ser?.first ?: emptyList(),
+            series = got<Series>("get_series") ?: ser?.second ?: emptyList(),
         )
         parsed.clear()
         listener.update(4, StepStatus.DONE, "${fmt(lib.channels.size + lib.movies.size + lib.series.size)} items")
         lib
-    }
-
-    private fun buildXtream(p: Playlist, file: (String) -> File): Library {
-        val x = XtreamClient(http, p)
-        val fmt = prefs.liveFormat
-        return Library(
-            liveCats = StreamParsers.categories(file("get_live_categories")),
-            channels = StreamParsers.live(file("get_live_streams"), x, fmt),
-            vodCats = StreamParsers.categories(file("get_vod_categories")),
-            movies = StreamParsers.movies(file("get_vod_streams"), x),
-            seriesCats = StreamParsers.categories(file("get_series_categories")),
-            series = StreamParsers.series(file("get_series")),
-        )
     }
 
     /** Streams a response straight to disk so large lists never sit in memory. */

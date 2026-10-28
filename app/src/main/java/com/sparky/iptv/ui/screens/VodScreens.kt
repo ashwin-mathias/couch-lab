@@ -146,7 +146,7 @@ fun MoviesScreen(vm: AppViewModel) {
         if (movies.isEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 T(
-                    if (vm.movieCat == CAT_FAV) "No favorite movies yet. Hold OK on a poster to add one." else "Nothing here yet.",
+                    if (vm.vodLoading) "Loading movies… ${vm.vodProgress ?: ""}" else if (vm.movieCat == CAT_FAV) "No favorite movies yet. Hold OK on a poster to add one." else "Nothing here yet.",
                     size = 15, color = C.Muted,
                 )
             }
@@ -251,7 +251,7 @@ fun SeriesScreen(vm: AppViewModel) {
         if (list.isEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 T(
-                    if (vm.seriesCat == CAT_FAV) "No favorite series yet. Hold OK on a poster to add one." else "Nothing here yet.",
+                    if (vm.vodLoading) "Loading series… ${vm.vodProgress ?: ""}" else if (vm.seriesCat == CAT_FAV) "No favorite series yet. Hold OK on a poster to add one." else "Nothing here yet.",
                     size = 15, color = C.Muted,
                 )
             }

@@ -14,6 +14,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import com.sparky.iptv.player.PlayerHolder
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -45,6 +53,8 @@ fun ChannelTile(
     width: Dp?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Plays the channel inside the tile, with sound, about a second after it's highlighted. */
+    livePreview: Boolean = false,
 ) {
     LaunchedEffect(ch.id) { vm.ensureEpg(ch) }
     val (cur, _) = vm.nowNext(ch.id, now)
@@ -58,9 +68,22 @@ fun ChannelTile(
             onClick = onClick,
             onLongClick = { vm.toggleFavorite(ch.favKey, ch.display) },
             modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
-        ) { _ ->
+        ) { focused ->
             Box(Modifier.fillMaxSize().background(C.Panel), contentAlignment = Alignment.Center) {
                 ChannelLogo(ch.display, ch.logo, 64.u)
+            }
+            if (livePreview && focused) {
+                val ctx = LocalContext.current
+                var playing by remember(ch.id) { mutableStateOf(false) }
+                LaunchedEffect(ch.id) {
+                    delay(1000)
+                    PlayerHolder.play(ctx, ch.url)
+                    playing = true
+                }
+                DisposableEffect(ch.id) {
+                    onDispose { if (!vm.liveHandoff) PlayerHolder.stop() }
+                }
+                if (playing) PlayerSurface(Modifier.fillMaxSize())
             }
             Row(Modifier.align(Alignment.TopStart).padding(8.u), verticalAlignment = Alignment.CenterVertically) {
                 T(ch.num.toString(), size = 11, weight = FontWeight.SemiBold, color = C.Dim)

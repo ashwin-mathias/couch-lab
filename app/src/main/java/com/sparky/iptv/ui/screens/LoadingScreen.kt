@@ -66,7 +66,7 @@ fun LoadingScreen(vm: AppViewModel) {
     // Overall progress: finished steps count fully, the active step counts half.
     val done = steps.count { it.status == StepStatus.DONE || it.status == StepStatus.FAILED }
     val active = steps.any { it.status == StepStatus.ACTIVE }
-    val target = if (steps.isEmpty()) 0f else (done + if (active) 0.5f else 0f) / steps.size
+    val target = vm.loadFraction ?: if (steps.isEmpty()) 0f else (done + if (active) 0.5f else 0f) / steps.size
     val fraction by animateFloatAsState(target, tween(600), label = "progress")
     val elapsed = if (vm.loadStartedAt > 0) ((now - vm.loadStartedAt) / 1000).coerceAtLeast(0) else 0
 

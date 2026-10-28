@@ -161,6 +161,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val loadSteps = mutableStateListOf<LoadStep>()
     var loadStartedAt by mutableLongStateOf(0L)
         private set
+    /** Overall loading progress when it can be measured directly (reading the saved copy). */
+    var loadFraction by mutableStateOf<Float?>(null)
+        private set
+    /** True while movies and series are still being read in the background. */
+    var vodLoading by mutableStateOf(false)
+        private set
+    var vodProgress by mutableStateOf<String?>(null)
+        private set
 
     private val stepListener = LoadListener { i, status, detail ->
         viewModelScope.launch(Dispatchers.Main) {
@@ -174,19 +182,48 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             loadSteps.clear()
             loadSteps.addAll(repo.stepsFor(prefs.playlist))
             loadStartedAt = System.currentTimeMillis()
+            loadFraction = null
             val hasSaved = repo.hasCache()
             if (hasSaved) {
                 loadSteps.clear()
-                loadSteps.add(LoadStep("Opening your saved library", com.sparky.iptv.data.StepStatus.ACTIVE, "Reading…"))
+                loadSteps.add(LoadStep("Opening your saved channels", com.sparky.iptv.data.StepStatus.ACTIVE, "Reading…"))
+                loadFraction = 0.05f
             }
-            val cached = try { repo.loadCached() } catch (t: Throwable) { AppLog.e("Saved library unreadable", t); null }
+            // Step 1: live channels only, so Home opens within a few seconds.
+            val cached = try {
+                repo.loadCachedLive { msg ->
+                    viewModelScope.launch(Dispatchers.Main) {
+                        if (loadSteps.isNotEmpty()) loadSteps[0] = loadSteps[0].copy(detail = msg)
+                        msg.substringAfterLast(' ').removeSuffix("%").toIntOrNull()?.let { loadFraction = 0.05f + it / 100f * 0.9f }
+                    }
+                }
+            } catch (t: Throwable) { AppLog.e("Saved library unreadable", t); null }
             if (cached != null && !cached.isEmpty) {
+                loadFraction = 1f
                 setLib(cached)
-                AppLog.i("Opened saved library: ${cached.channels.size} channels, ${cached.movies.size} movies, ${cached.series.size} series")
                 resetTo(Screen.Home)
-                maybeDailyRefresh()
                 checkForUpdate()
                 maybePromptRegions()
+                // Step 2: movies and series load in the background.
+                if (prefs.playlist?.type != "m3u") {
+                    vodLoading = true
+                    try {
+                        val full = repo.loadCachedVod(cached) { msg ->
+                            viewModelScope.launch(Dispatchers.Main) { vodProgress = msg }
+                        }
+                        // A fresh download may have finished meanwhile; don't replace it with older data.
+                        if (library.movies.isEmpty() && library.series.isEmpty()) {
+                            setLib(Library(library.liveCats, library.channels, full.vodCats, full.movies, full.seriesCats, full.series))
+                        }
+                    } catch (t: Throwable) {
+                        if (t is kotlinx.coroutines.CancellationException) throw t
+                        AppLog.e("Loading movies/series failed", t)
+                    } finally {
+                        vodLoading = false
+                        vodProgress = null
+                    }
+                }
+                maybeDailyRefresh()
             } else {
                 if (hasSaved) { loadSteps.clear(); loadSteps.addAll(repo.stepsFor(prefs.playlist)) }
                 try {

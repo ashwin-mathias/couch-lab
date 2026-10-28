@@ -1,6 +1,13 @@
 package com.sparky.iptv.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -50,7 +57,7 @@ private const val KEY_RECENT_PAGE = "page_recent"
 
 @Composable
 private fun PageHeader(title: String, subtitle: String, tiles: Boolean, onToggle: () -> Unit, toggleFocus: FocusRequester) {
-    Row(Modifier.fillMaxWidth().padding(end = 48.u), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(end = 8.u), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.u)) {
             T(title, size = 30, weight = FontWeight.Bold)
             T(subtitle, size = 14, color = C.Dim)
@@ -67,20 +74,19 @@ private fun PageHeader(title: String, subtitle: String, tiles: Boolean, onToggle
                 T(if (tiles) "List view" else "Tile view", size = 14, weight = FontWeight.SemiBold, color = if (f) C.OnFocus else C.Text2)
             }
         }
-        Spacer(Modifier.width(24.u))
-        Clock()
     }
 }
 
 /** One channel as a list row (used when the page is in list view). */
 @Composable
-private fun ChannelRow(vm: AppViewModel, ch: Channel, now: Long, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun ChannelRow(vm: AppViewModel, ch: Channel, now: Long, onClick: () -> Unit, modifier: Modifier = Modifier, onFocus: () -> Unit = {}) {
     LaunchedEffect(ch.id) { vm.ensureEpg(ch) }
     val (cur, _) = vm.nowNext(ch.id, now)
     val (badge, title) = Names.event(ch.display)
     FocusItem(
         onClick = onClick,
         onLongClick = { vm.toggleFavorite(ch.favKey, ch.display) },
+        onFocus = onFocus,
         container = C.Panel,
         modifier = modifier.fillMaxWidth().height(64.u),
     ) { f ->
@@ -106,6 +112,21 @@ private fun ChannelRow(vm: AppViewModel, ch: Channel, now: Long, onClick: () -> 
     }
 }
 
+/** Left: the list or tiles. Right: live preview of the highlighted channel, as in Live TV. */
+@Composable
+private fun WithPreview(vm: AppViewModel, focused: Channel?, fallback: Channel?, content: @Composable () -> Unit) {
+    PreviewDriver(vm, focused)
+    Row(Modifier.fillMaxSize()) {
+        Box(Modifier.weight(1f).fillMaxHeight()) { content() }
+        Box(Modifier.width(1.u).fillMaxHeight().background(C.Line))
+        ChannelPreviewPane(vm, focused ?: fallback, hasFocus = focused != null, modifier = Modifier.width(400.u))
+    }
+}
+
+/** Focus starts on the channel watched last (e.g. after Back from full screen), else the first item. */
+private fun startIndex(vm: AppViewModel, ids: List<String?>): Int =
+    ids.indexOf(vm.prefs.lastChannel).takeIf { it >= 0 } ?: 0
+
 /** Favorites: channels (tiles or list), then movies and series. */
 @Composable
 fun FavoritesSection(vm: AppViewModel) {
@@ -116,15 +137,19 @@ fun FavoritesSection(vm: AppViewModel) {
     val series = remember(vm.library, vm.favorites) { vm.library.series.filter { it.favKey in vm.favorites } }
     val toggleFocus = remember { FocusRequester() }
     val first = remember { FocusRequester() }
-    LaunchedEffect(Unit) {
+    var focused by remember { mutableStateOf<Channel?>(null) }
+    val start = remember(chans) { startIndex(vm, chans.map { it.id }) }
+    LaunchedEffect(tiles) {
         delay(150)
         runCatching { first.requestFocus() }.onFailure { runCatching { toggleFocus.requestFocus() } }
     }
+    WithPreview(vm, focused, chans.getOrNull(start)) {
     LazyVerticalGrid(
-        columns = GridCells.Fixed(if (tiles) 4 else 1),
+        columns = GridCells.Fixed(if (tiles) 3 else 1),
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 48.u, end = 48.u, top = 32.u, bottom = 48.u),
-        horizontalArrangement = Arrangement.spacedBy(if (tiles) 20.u else 0.u),
+        state = rememberLazyGridState(initialFirstVisibleItemIndex = start),
+        contentPadding = PaddingValues(start = 40.u, end = 28.u, top = 32.u, bottom = 48.u),
+        horizontalArrangement = Arrangement.spacedBy(if (tiles) 18.u else 0.u),
         verticalArrangement = Arrangement.spacedBy(if (tiles) 22.u else 6.u),
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
@@ -139,9 +164,10 @@ fun FavoritesSection(vm: AppViewModel) {
         if (chans.isNotEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) { Label("Channels", color = C.Muted, modifier = Modifier.padding(top = 8.u)) }
             itemsIndexed(chans, key = { idx, c -> "$idx:" + ("c" + c.id) }) { i, ch ->
-                val m = if (i == 0) Modifier.focusRequester(first) else Modifier
-                if (tiles) ChannelTile(vm, ch, now, width = null, onClick = { vm.playLive(chans, i) }, modifier = m)
-                else ChannelRow(vm, ch, now, onClick = { vm.playLive(chans, i) }, modifier = m)
+                val m = if (i == start) Modifier.focusRequester(first) else Modifier
+                if (tiles) ChannelTile(vm, ch, now, width = null, onClick = { vm.playLive(chans, i) },
+                    modifier = m.onFocusChanged { if (it.hasFocus) focused = ch })
+                else ChannelRow(vm, ch, now, onClick = { vm.playLive(chans, i) }, modifier = m, onFocus = { focused = ch })
             }
         }
         if (movies.isNotEmpty() || series.isNotEmpty()) {
@@ -165,6 +191,7 @@ fun FavoritesSection(vm: AppViewModel) {
             }
         }
     }
+    }
 }
 
 /** The last 12 things watched: channels, movies and series together, newest first. */
@@ -176,15 +203,21 @@ fun RecentSection(vm: AppViewModel) {
     val liveList = remember(entries) { entries.filterIsInstance<AppViewModel.RecentEntry.Ch>().map { it.channel } }
     val toggleFocus = remember { FocusRequester() }
     val first = remember { FocusRequester() }
-    LaunchedEffect(Unit) {
+    var focused by remember { mutableStateOf<Channel?>(null) }
+    val start = remember(entries) {
+        startIndex(vm, entries.map { (it as? AppViewModel.RecentEntry.Ch)?.channel?.id })
+    }
+    LaunchedEffect(tiles) {
         delay(150)
         runCatching { first.requestFocus() }.onFailure { runCatching { toggleFocus.requestFocus() } }
     }
+    WithPreview(vm, focused, liveList.firstOrNull()) {
     LazyVerticalGrid(
-        columns = GridCells.Fixed(if (tiles) 4 else 1),
+        columns = GridCells.Fixed(if (tiles) 3 else 1),
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 48.u, end = 48.u, top = 32.u, bottom = 48.u),
-        horizontalArrangement = Arrangement.spacedBy(if (tiles) 20.u else 0.u),
+        state = rememberLazyGridState(initialFirstVisibleItemIndex = start),
+        contentPadding = PaddingValues(start = 40.u, end = 28.u, top = 32.u, bottom = 48.u),
+        horizontalArrangement = Arrangement.spacedBy(if (tiles) 18.u else 0.u),
         verticalArrangement = Arrangement.spacedBy(if (tiles) 22.u else 6.u),
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
@@ -197,12 +230,12 @@ fun RecentSection(vm: AppViewModel) {
             }
         }
         itemsIndexed(entries) { i, e ->
-            val m = if (i == 0) Modifier.focusRequester(first) else Modifier
+            val m = if (i == start) Modifier.focusRequester(first) else Modifier
             when (e) {
                 is AppViewModel.RecentEntry.Ch ->
-                    if (tiles) ChannelTile(vm, e.channel, now, width = null, modifier = m,
+                    if (tiles) ChannelTile(vm, e.channel, now, width = null, modifier = m.onFocusChanged { if (it.hasFocus) focused = e.channel },
                         onClick = { vm.playLive(liveList, liveList.indexOf(e.channel)) })
-                    else ChannelRow(vm, e.channel, now, modifier = m,
+                    else ChannelRow(vm, e.channel, now, modifier = m, onFocus = { focused = e.channel },
                         onClick = { vm.playLive(liveList, liveList.indexOf(e.channel)) })
                 is AppViewModel.RecentEntry.Mv -> RecentVodItem(
                     tiles, m, e.movie.name, e.movie.poster, "Movie", vm.progress(e.movie.progressKey)?.fraction,
@@ -218,6 +251,7 @@ fun RecentSection(vm: AppViewModel) {
                 )
             }
         }
+    }
     }
 }
 

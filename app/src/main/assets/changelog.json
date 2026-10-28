@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.1",
+    "date": "2026-10-28",
+    "title": "Faster start and live previews",
+    "notes": [
+      "Opens in seconds: a compact saved library, and Home appears as soon as channels are ready",
+      "Movies and series finish loading in the background",
+      "Favorites and Recently watched pages show a live preview panel in list and tile view",
+      "Home: channel tiles play live (with sound) after a moment on them",
+      "Home rows are now Favorites, Recently watched, Recently added",
+      "Full-screen TV: Left or Back returns to the page you came from; a short OK press does nothing",
+      "Safe margins so nothing is cut off at the edges of the TV"
+    ]
+  },
+  {
     "version": "2.0",
     "date": "2026-10-27",
     "title": "Home, regions, favorites and recents",
