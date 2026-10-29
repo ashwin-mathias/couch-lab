@@ -39,6 +39,10 @@ To update, repeat step 4. The code always points to the newest build. Your login
 | Movies & episodes | ▼ | Buttons: audio & subtitles, next episode, start over |
 | Movies & episodes | Back | Hide the controls, then leave (your place is saved) |
 
+## Documentation
+
+Full specification, design system, architecture, test checklist and a rebuild prompt live in [docs/](docs/README.md).
+
 ## Building
 
 GitHub Actions builds it automatically (`.github/workflows/build.yml`). Locally: `./gradlew assembleRelease` with JDK 17 and the Android SDK.

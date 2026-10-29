@@ -3,6 +3,10 @@ name: Build Sparky IPTV
 on:
   push:
     branches: [ main ]
+    # Documentation-only changes don't need a new app build.
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
   workflow_dispatch:
 
 permissions:
