@@ -75,7 +75,9 @@ class Prefs(ctx: Context) {
 
     fun clearAllProgress() {
         val e = sp.edit()
-        sp.all.keys.filter { it.startsWith("pos:") || it.startsWith("slast:") }.forEach { e.remove(it) }
+        // Watch history, plus remembered audio / subtitle choices.
+        sp.all.keys.filter { it.startsWith("pos:") || it.startsWith("slast:") || it.startsWith("trk:") }.forEach { e.remove(it) }
+        e.remove("trk_order").remove("vod_audio_lang").remove("vod_text_lang")
         e.apply()
     }
 
@@ -118,8 +120,35 @@ class Prefs(ctx: Context) {
         return parts.getOrNull(0)?.ifBlank { null } to parts.getOrNull(1)?.ifBlank { null }
     }
 
-    fun saveTrackChoice(key: String, audio: String?, text: String?) =
-        sp.edit().putString("trk:$key", "${audio ?: ""}|${text ?: ""}").apply()
+    /** Saves a channel's choice. Only the 200 most recently changed channels are kept. */
+    fun saveTrackChoice(key: String, audio: String?, text: String?) {
+        val order = trackOrder().filter { it != key }.toMutableList()
+        order.add(0, key)
+        val e = sp.edit()
+        while (order.size > MAX_TRACK_CHOICES) e.remove("trk:" + order.removeAt(order.lastIndex))
+        e.putString("trk:$key", "${audio ?: ""}|${text ?: ""}")
+        e.putString("trk_order", org.json.JSONArray(order).toString())
+        e.apply()
+    }
+
+    private fun trackOrder(): List<String> = runCatching {
+        // Choices saved before the cap existed are picked up the first time.
+        val raw = sp.getString("trk_order", null)
+            ?: return sp.all.keys.filter { it.startsWith("trk:") }.map { it.removePrefix("trk:") }
+        val arr = org.json.JSONArray(raw)
+        List(arr.length()) { arr.getString(it) }
+    }.getOrDefault(emptyList())
+
+    // ---- one general audio / subtitle setting for all movies and episodes ----
+    fun vodTrackChoice(): Pair<String?, String?> =
+        sp.getString("vod_audio_lang", null)?.ifBlank { null } to sp.getString("vod_text_lang", null)?.ifBlank { null }
+
+    fun saveVodTrackChoice(audio: String?, text: String?) {
+        val e = sp.edit()
+        if (audio != null) e.putString("vod_audio_lang", audio)
+        if (text != null) e.putString("vod_text_lang", text)
+        e.apply()
+    }
 
     // ---- daily refresh ----
     var lastRefresh: Long
@@ -133,4 +162,8 @@ class Prefs(ctx: Context) {
     fun seriesLastEpisode(seriesId: String): String? = sp.getString("slast:$seriesId", null)
     fun setSeriesLastEpisode(seriesId: String, episodeId: String) =
         sp.edit().putString("slast:$seriesId", episodeId).apply()
+
+    companion object {
+        const val MAX_TRACK_CHOICES = 200
+    }
 }

@@ -74,32 +74,21 @@ fun Poster(title: String, url: String?, modifier: Modifier = Modifier) {
 /** The video surface. The one shared player is attached while this is on screen. */
 @OptIn(UnstableApi::class)
 @Composable
-fun PlayerSurface(modifier: Modifier = Modifier, withControls: Boolean = false) {
+fun PlayerSurface(modifier: Modifier = Modifier) {
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
             PlayerView(ctx).apply {
-                useController = withControls
+                // Our own Compose controls handle the remote, so the stock controller is off and the view never takes focus.
+                useController = false
                 player = PlayerHolder.get(ctx)
                 setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
                 resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                 setShutterBackgroundColor(AColor.BLACK)
                 setBackgroundColor(AColor.BLACK)
                 keepScreenOn = true
-                if (withControls) {
-                    // Movies and episodes: subtitles button; audio tracks are under the settings (gear) button.
-                    setShowSubtitleButton(true)
-                    isFocusable = true
-                    isFocusableInTouchMode = true
-                    controllerShowTimeoutMs = 3500
-                    post {
-                        requestFocus()
-                        showController()
-                    }
-                } else {
-                    isFocusable = false
-                    descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
-                }
+                isFocusable = false
+                descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
             }
         },
         onRelease = { it.player = null },

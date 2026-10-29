@@ -1,5 +1,17 @@
 [
   {
+    "version": "2.3",
+    "date": "2026-10-28",
+    "title": "New movie and episode controls",
+    "notes": [
+      "New TV-style control bar for movies and episodes that always responds to the remote",
+      "◀ / ▶ jump back / forward 10 seconds; hold to go faster. OK plays and pauses",
+      "▼ shows buttons: play/pause, back/forward 10 s, audio & subtitles, next episode, start over",
+      "One audio & subtitle setting for all movies and series; live channels remember up to 200 choices",
+      "Clear watch history also clears saved audio & subtitle choices"
+    ]
+  },
+  {
     "version": "2.2",
     "date": "2026-10-28",
     "title": "Audio and subtitles",

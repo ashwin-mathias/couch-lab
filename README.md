@@ -34,7 +34,10 @@ To update, repeat step 4. The code always points to the newest build. Your login
 | Full-screen live TV | ◀ or Back | Back to the page you came from |
 | Full-screen live TV | ▶ | Audio & subtitles |
 | Full-screen live TV | Hold OK | Add / remove favorite |
-| Movies & episodes | OK | Playback controls (subtitles, audio under the gear) |
+| Movies & episodes | OK | Play / pause |
+| Movies & episodes | ◀ / ▶ | Back / forward 10 seconds (hold to go faster) |
+| Movies & episodes | ▼ | Buttons: audio & subtitles, next episode, start over |
+| Movies & episodes | Back | Hide the controls, then leave (your place is saved) |
 
 ## Building
 
