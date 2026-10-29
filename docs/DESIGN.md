@@ -106,6 +106,7 @@ Time formats: clock `h:mm a`; short `h:mm`; day `EEEE, MMM d`; date `MMM d, yyyy
 | Setting row | Height 66, `Panel` (`Raised` if highlighted), padding 20. Title 17 SemiBold, then 4 gap, then the subtitle 13 Dim. |
 | Chip | Height 40, pill, `Panel`; selected `Raised`; text 14 SemiBold (selected `Text`, else `Muted`), padding 18. |
 | Track row | Height 46, radius 10. A "✓" column 24 wide, then the label 15. |
+| Option row (2.4) | Height 54, radius 10, `Panel`, padding 16. Label 14 `Muted` (focused `OnFocusMuted`) on the left; on the right "‹" 18 Bold, the value 15 SemiBold (padding 10), and "›" 18 Bold. An arrow is hidden at the first or last value. ◀/▶ change the value; OK steps through. |
 
 ## 7. Icons
 
@@ -266,6 +267,13 @@ Usage:
 - Left: the headline 44, the text 18 Muted (max 520 wide), and the steps (the number 14 Bold Dim in a 30-wide column, the text 17).
 - Right: the QR box 300, radius 18, `Text` background, padding 24. The QR uses dark modules `#0E0F11` on light `#EEEBE5`, margin 0. Below it: "Or open on any device on this Wi-Fi" 13 Dim and the address 18 SemiBold.
 - Footer: a 1 px line, then the status dot and texts at 14 Dim.
+
+### 8.15a Subtitle style (Settings)
+- Padding 64 × 44; columns spaced 48.
+- The left column is 460 wide, spacing 8: the title 30 Bold, the text 14 Muted (2 lines, lineHeight 1.5, 12 below), then the option rows (spacing 6) and a "Reset to default" row (46 high, transparent, 14 SemiBold Muted).
+- The right column (weight 1, spacing 12): "PREVIEW" label (10 from the top), a 16:9 box (radius 14) with a vertical gradient `#3C82DC → #66A3EA → #B9D5F2 → #7A5A48` and a Media3 `SubtitleView` showing the sample cue, then the note 13 Dim.
+- In the player panel, the same option rows replace the track list. The panel's title becomes "Subtitle style" and the note reads "◀ ▶ to change, shown live on the video.␣␣Back to return."
+- **Subtitles themselves**: the colours and sizes are in SPEC §14.1. The font is the player default.
 
 ### 8.16 Diagnostics and About
 - **Diagnostics**: padding 64 × 44; columns spaced 48.

@@ -40,6 +40,9 @@ import androidx.media3.common.Player
 import com.sparky.iptv.R
 import com.sparky.iptv.player.PlayerHolder
 import com.sparky.iptv.player.TrackHelper
+import com.sparky.iptv.player.SubtitleStyleState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.media3.common.C as MediaC
 import com.sparky.iptv.ui.components.Label
 import com.sparky.iptv.ui.AppViewModel
@@ -254,6 +257,7 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
 
         if (panelOpen) {
             TrackPanel(
+                vm = vm,
                 tick = tracksTick,
                 current = { vm.prefs.trackChoice(ch.favKey) },
                 onSave = { a, t -> vm.prefs.saveTrackChoice(ch.favKey, a, t) },
@@ -269,6 +273,7 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
 /** Side panel listing the stream's audio tracks and subtitles. */
 @Composable
 private fun TrackPanel(
+    vm: AppViewModel,
     tick: Int,
     current: () -> Pair<String?, String?>,
     onSave: (audio: String?, text: String?) -> Unit,
@@ -283,15 +288,37 @@ private fun TrackPanel(
     val subs = remember(tick) { TrackHelper.options(player, MediaC.TRACK_TYPE_TEXT) }
     val subsOn = remember(tick) { TrackHelper.subtitlesOn(player) }
     val first = remember { FocusRequester() }
-    LaunchedEffect(Unit) { delay(80); runCatching { first.requestFocus() } }
+    val styleFirst = remember { FocusRequester() }
+    var styleOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(styleOpen) {
+        delay(80)
+        runCatching { if (styleOpen) styleFirst.requestFocus() else first.requestFocus() }
+    }
+    // Registered after the player's handlers, so Back leaves the style options first.
+    BackHandler(enabled = styleOpen) { styleOpen = false }
 
     fun saveChoice(audioLang: String?, textLang: String?) {
         val (a, t) = current()
         onSave(audioLang ?: a, textLang ?: t)
     }
 
+    if (styleOpen) {
+        Column(
+            modifier.fillMaxHeight().width(380.u).background(C.Bg.copy(alpha = 0.94f))
+                .padding(start = 24.u, end = 40.u, top = 40.u, bottom = 40.u),
+            verticalArrangement = Arrangement.spacedBy(6.u),
+        ) {
+            T("Subtitle style", size = 20, weight = FontWeight.Bold)
+            T("◀ ▶ to change, shown live on the video.  Back to return.", size = 12, color = C.Dim, maxLines = 2,
+                modifier = Modifier.padding(bottom = 10.u))
+            SubtitleStyleOptions(vm, styleFirst)
+        }
+        return
+    }
+
     Column(
         modifier.fillMaxHeight().width(380.u).background(C.Bg.copy(alpha = 0.94f))
+            .verticalScroll(rememberScrollState())
             .padding(start = 24.u, end = 40.u, top = 40.u, bottom = 40.u),
         verticalArrangement = Arrangement.spacedBy(6.u),
     ) {
@@ -328,6 +355,10 @@ private fun TrackPanel(
                 onChanged()
             }
         }
+
+        Spacer(Modifier.height(10.u))
+        TrackRow("Subtitle style…", selected = false) { styleOpen = true }
+        T(SubtitleStyleState.style.summary, size = 12, color = C.Dim, maxLines = 2, modifier = Modifier.padding(start = 38.u))
     }
 }
 
@@ -627,6 +658,7 @@ private fun VodPlayer(vm: AppViewModel, req: PlayRequest.Vod) {
 
         if (panelOpen) {
             TrackPanel(
+                vm = vm,
                 tick = tracksTick,
                 current = { vm.prefs.vodTrackChoice() },
                 onSave = { a, t -> vm.prefs.saveVodTrackChoice(a, t) },

@@ -1,5 +1,16 @@
 [
   {
+    "version": "2.4",
+    "date": "2026-10-28",
+    "title": "Subtitle style",
+    "notes": [
+      "Settings → Subtitle style: size, text colour, background, edge (drop shadow or outline) and position",
+      "Live preview while you choose; also reachable from Audio & subtitles while watching",
+      "New default: medium white text with a drop shadow on a semi-transparent box",
+      "Raised position keeps subtitles clear of the bottom edge on letterboxed films"
+    ]
+  },
+  {
     "version": "2.3",
     "date": "2026-10-28",
     "title": "New movie and episode controls",

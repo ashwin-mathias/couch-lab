@@ -8,6 +8,8 @@ Why the app is the way it is. Read this before changing behaviour, so settled qu
 
 | Version | Decision | Reason |
 |---|---|---|
+| 2.4 | **Subtitle style** setting: size, text colour, background, edge, position. Default: Medium, white, drop shadow, semi-transparent box (picked from six samples on a real frame) | The stock solid black box was heavy; style 3 reads well on bright scenes with the picture showing through |
+| 2.4 | The style is one global setting, reachable from Settings and from the player panel, and isn't cleared with watch history | Appearance, not history; adjust while watching |
 | 2.3 | Movies/episodes: **◀ = back 10 s, ▶ = forward 10 s**, accelerating when held; OK = play/pause; ▼ = buttons | TV-standard behaviour; replaces the stock controls that lost focus |
 | 2.3 | **One general** audio/subtitle setting for all movies and series. A choice made in the panel becomes the new general setting; nothing is stored per title | Per-title storage would grow forever and need cleanup |
 | 2.3 | Live per-channel choices are kept, but **capped at the 200 most recently changed** | Small, bounded storage |

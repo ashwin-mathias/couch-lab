@@ -47,6 +47,7 @@ sealed interface Screen {
     data object Home : Screen
     data object About : Screen
     data object Diagnostics : Screen
+    data object SubtitleStyle : Screen
     data class Regions(val firstRun: Boolean) : Screen
     data class MovieDetail(val movie: Movie) : Screen
     data class SeriesDetail(val series: Series) : Screen
@@ -620,8 +621,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun stopPreview() = PlayerHolder.stop()
 
+    // ---------- subtitle style ----------
+    fun setSubStyle(s: com.sparky.iptv.player.SubStyle) {
+        com.sparky.iptv.player.SubtitleStyleState.style = s
+        prefs.subStyle = s.encode()
+    }
+
     // Runs last, so every property above is ready before loading starts.
     init {
+        com.sparky.iptv.player.SubtitleStyleState.style = com.sparky.iptv.player.SubStyle.decode(prefs.subStyle)
         if (prefs.playlist == null) {
             stack.add(Screen.Setup)
         } else {

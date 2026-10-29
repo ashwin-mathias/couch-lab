@@ -1,6 +1,6 @@
 # Sparky IPTV — Product specification
 
-Version described: **2.3** (October 2026). This file says **what the app does**. How it looks is in [DESIGN.md](DESIGN.md), how it's built in [ARCHITECTURE.md](ARCHITECTURE.md), and how to prove it works in [ACCEPTANCE.md](ACCEPTANCE.md).
+Version described: **2.4** (October 2026). This file says **what the app does**. How it looks is in [DESIGN.md](DESIGN.md), how it's built in [ARCHITECTURE.md](ARCHITECTURE.md), and how to prove it works in [ACCEPTANCE.md](ACCEPTANCE.md).
 
 Words used: in quoted on-screen text, `␣` marks a space that must be kept (hint lines use three spaces around each `·`; meta lines join with `   ·   `). **must** = required; **should** = strong default. "OK" = the remote's centre button. ◀ ▶ ▲ ▼ = D-pad. "Hold OK" = press longer than 600 ms.
 
@@ -152,6 +152,7 @@ Three columns: **Groups** (270) | **Channels** (470) | **Preview pane** (the res
   - The note reads "Remembered for this channel.␣␣Back to close." (two spaces)
   - The choice is saved **per channel** by language and re-applied whenever that channel's tracks load.
   - Only the **200 most recently changed channels** are kept.
+  - The last row is **Subtitle style…** with the current style summary below it. It opens the style options inside the same panel (§14.1); Back returns to the track list.
 
 ## 8. TV Guide
 
@@ -279,6 +280,7 @@ The player screen always holds focus and handles every key itself. The stock Exo
   1. **Update available — install now** (only when one exists; highlighted; focused first). The subtitle reads "<release name>. Downloads and opens Android's installer." While downloading, the title becomes "Downloading · 12.3 MB".
   2. **Change login**: "Scan a QR code and enter a new login on your phone".
   3. **My regions**: lists the chosen region labels, or "Showing all regions".
+  3a. **Subtitle style**: the subtitle shows the current style, e.g. "Medium · White · Drop shadow · Semi-transparent box". It opens §14.1.
   4. **Update playlist now**: "Updated 3 h ago · updates automatically once a day".
   5. **Clear watch history**: "Removes resume points for movies and episodes". This also clears saved audio/subtitle choices. Toast: "Watch history cleared".
   6. **Check for updates**: "Looks for a newer version on GitHub".
@@ -286,6 +288,26 @@ The player screen always holds focus and handles every key itself. The stock Exo
   8. **About Sparky IPTV**: "Who made it, and what's new in each version".
 - Right column: **PLAYLIST** (Name, Type, Server, Username, Status, Expires, Connections, and Library counts), then **APP** (Version "Sparky IPTV 2.3 (build N)").
 - The nav rail's Settings icon shows a small accent dot when an update is available.
+
+### 14.1 Subtitle style (2.4)
+- One style for **all** subtitles: movies, series and live TV. It's saved on the TV and not cleared by Clear watch history.
+- Five options. ◀ / ▶ change the value (no wrap); OK steps to the next value (wraps):
+
+  | Option | Values | Default |
+  |---|---|---|
+  | Size | Small (0.8×) · Medium (1×) · Large (1.25×) · Extra large (1.5×) of the player's standard size | Medium |
+  | Text colour | White `#FFFFFF` · Yellow `#FFE14D` · Cyan `#7FE3F0` | White |
+  | Background | None · Semi-transparent box (black at 50%) · Solid black box | Semi-transparent box |
+  | Edge | Drop shadow · Outline · None (black edge colour) | Drop shadow |
+  | Position | Normal (standard bottom gap) · Raised (bottom gap 20% of the picture height) | Normal |
+
+- **Reset to default** restores the defaults with the toast "Subtitle style reset".
+- The style overrides any colours, fonts or sizes embedded in the subtitle stream.
+- **Settings screen**:
+  - Title "Subtitle style" with "Used for movies, series and live TV. ◀ ▶ to change, OK to step through."
+  - The options on the left.
+  - On the right, "PREVIEW": a sample subtitle ("This is how subtitles will look, / on bright and dark scenes alike.") drawn by the player's own subtitle view over a bright sky-like gradient, with "Shown over a bright scene, the hardest case for reading subtitles."
+- **In the player**: Audio & subtitles → Subtitle style… shows the same options, titled "Subtitle style" with the note "◀ ▶ to change, shown live on the video.␣␣Back to return." Changes apply to the playing video at once.
 
 ## 15. App updates
 

@@ -27,6 +27,8 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.sparky.iptv.player.PlayerHolder
+import com.sparky.iptv.player.SubStyle
+import com.sparky.iptv.player.SubtitleStyleState
 import kotlinx.coroutines.delay
 
 /** Channel logo, falling back to a monogram tile when there is no logo (or it fails). */
@@ -91,6 +93,8 @@ fun PlayerSurface(modifier: Modifier = Modifier) {
                 descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
             }
         },
+        // Reading the shared style here re-applies it whenever it changes.
+        update = { SubStyle.apply(it.subtitleView, SubtitleStyleState.style) },
         onRelease = { it.player = null },
     )
 }

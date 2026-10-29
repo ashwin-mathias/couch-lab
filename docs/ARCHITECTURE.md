@@ -59,6 +59,7 @@ data/
 player/
   PlayerHolder.kt        ONE shared ExoPlayer for previews and full screen
   TrackHelper.kt         list/select audio and subtitle tracks, reset, re-apply remembered language
+  SubtitleStyle.kt       SubStyle (options, encode/decode, apply to a SubtitleView) + SubtitleStyleState (shared Compose state)
 setup/
   SetupServer.kt         NanoHTTPD login form server (8080–8090); Net.localIp; Qr.bitmap
   SetupPage.kt           phone HTML (form/done)
@@ -72,7 +73,8 @@ ui/
   screens/               HomeSection, LiveScreen, Preview (PreviewDriver, ChannelPreviewPane), CollectionSections,
                          GuideScreen, VodScreens (Movies, Series, MovieDetail, PosterTile), SeriesDetailScreen,
                          SearchSettings, RegionsScreen, LoadingScreen, SetupScreens (+PillButton), DiagnosticsScreen,
-                         AboutScreen, PlayerScreen (LivePlayer, VodPlayer, TrackPanel)
+                         AboutScreen, PlayerScreen (LivePlayer, VodPlayer, TrackPanel),
+                         SubtitleStyleScreen (screen, SubtitleStyleOptions shared with TrackPanel, preview)
 assets/  changelog.json, about.json
 res/     drawable/*.xml icons, drawable-nodpi/{logo,avatar}.png, drawable-xhdpi/banner.png, mipmap-*/ic_launcher.png,
          font/inter_*.otf, values/{strings,themes}.xml, xml/file_paths.xml
@@ -160,6 +162,7 @@ keystore/sparky.jks      signing key (password "sparkyiptv", alias "sparky") —
 | `trk:<live:id>` | `"audioLang|textLang"` (`textLang` "off" = off) |
 | `trk_order` | JSON array, most recent first, **max 200**; older `trk:` entries are removed |
 | `vod_audio_lang`, `vod_text_lang` | the general movie/series track setting |
+| `sub_style` | `"size,color,background,edge,position"` indices (default `1,0,1,0,0`); invalid values fall back per field |
 | `last_refresh` | epoch ms |
 | `catchup_scanned` | bool |
 | `last_channel` | channel id |
@@ -173,6 +176,8 @@ Files in `filesDir`: `snap_*.bin`, `cache_m3u.json`, `app_log.txt`, `last_crash.
   - `stop` clears items; `pause`/`resume`; `currentPosition`; `duration` (0 if unknown).
 - `PlayerSurface`: an `AndroidView(PlayerView)` with `useController = false`, **not focusable** (`FOCUS_BLOCK_DESCENDANTS`), buffering spinner shown while playing, fit mode, black shutter, `keepScreenOn`.
   - **Never enable the stock controller.** All keys go to our Compose box.
+  - Its `update` block calls `SubStyle.apply(subtitleView, SubtitleStyleState.style)`. Because `update` reads that state, every surface re-styles as soon as the style changes. `apply` turns off embedded styles and font sizes, sets a `CaptionStyleCompat` (text colour, background, transparent window, edge type, black edge), sets the fractional text size to `DEFAULT_TEXT_SIZE_FRACTION × scale`, and sets the bottom padding fraction (0.2 when Raised, otherwise the default).
+  - `AppViewModel.init` loads the style from Prefs into `SubtitleStyleState`; `setSubStyle` updates both.
 - Previews and full screen share the player. `PreviewDriver` plays after 700 ms of focus and stops on dispose unless `liveHandoff`.
 - Track selection: `TrackSelectionOverride(group.mediaTrackGroup, index)` with `setTrackTypeDisabled(type, false)`. Turning subtitles off = `clearOverridesOfType(TEXT)` + `setTrackTypeDisabled(TEXT, true)`. Labels are built from the language display name, the format label, 5.1/Stereo/Mono, and CC.
 

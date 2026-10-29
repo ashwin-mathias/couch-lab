@@ -197,6 +197,7 @@ fun SettingsScreen(vm: AppViewModel) {
                     else -> vm.myRegions.joinToString(", ") { com.sparky.iptv.data.Names.regionLabel(it) }
                 }
                 SettingRow("My regions", regionSummary) { vm.push(Screen.Regions(firstRun = false)) }
+                SettingRow("Subtitle style", com.sparky.iptv.player.SubtitleStyleState.style.summary) { vm.push(Screen.SubtitleStyle) }
                 val last = vm.prefs.lastRefresh
                 val ago = if (last <= 0L) "Not updated yet" else {
                     val mins = (System.currentTimeMillis() - last) / 60_000

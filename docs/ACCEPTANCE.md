@@ -82,6 +82,15 @@ Tick each box. Note the build number at the top of the run.
 - [ ] J8. Leaving at 20 min and reopening offers Resume at about 20 min. Finishing clears the resume point.
 - [ ] J9. Remote media keys (play/pause, rewind, fast forward, next) work.
 
+## J2. Subtitle style (2.4)
+- [ ] J2-1. Settings → Subtitle style shows five options and a preview. ◀/▶ change the value; the preview updates at once.
+- [ ] J2-2. The default is Medium · White · Drop shadow · Semi-transparent box, and it already applies to existing users after the update.
+- [ ] J2-3. Each size, colour, background and edge shows correctly on a playing movie with subtitles on. Raised clearly lifts the text.
+- [ ] J2-4. While watching: Audio & subtitles → Subtitle style… changes the live subtitles. Back returns to the track list, then closes the panel.
+- [ ] J2-5. Subtitles with their own colours (styled SSA/WebVTT) still use our style.
+- [ ] J2-6. The style survives an app restart and Clear watch history. Reset to default restores the defaults.
+- [ ] J2-7. Live TV subtitles use the same style.
+
 ## K. Search and Settings
 - [ ] K1. Typing 2+ letters shows channel, movie and series rows. Region filtering applies; favourites are always included.
 - [ ] K2. Settings rows all work. Playlist info is correct (status, expiry, counts).

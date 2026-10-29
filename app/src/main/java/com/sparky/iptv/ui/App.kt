@@ -55,6 +55,7 @@ import com.sparky.iptv.ui.screens.SeriesDetailScreen
 import com.sparky.iptv.ui.screens.SeriesScreen
 import com.sparky.iptv.ui.screens.SettingsScreen
 import com.sparky.iptv.ui.screens.SetupScreen
+import com.sparky.iptv.ui.screens.SubtitleStyleScreen
 
 @Composable
 fun App(vm: AppViewModel) {
@@ -66,6 +67,7 @@ fun App(vm: AppViewModel) {
                 Screen.Home -> HomeScreen(vm)
                 Screen.About -> AboutScreen(vm)
                 Screen.Diagnostics -> DiagnosticsScreen(vm)
+                Screen.SubtitleStyle -> SubtitleStyleScreen(vm)
                 is Screen.Regions -> RegionsScreen(vm, s.firstRun)
                 is Screen.MovieDetail -> MovieDetailScreen(vm, s.movie)
                 is Screen.SeriesDetail -> SeriesDetailScreen(vm, s.series)

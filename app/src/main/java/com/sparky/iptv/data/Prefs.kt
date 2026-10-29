@@ -139,6 +139,11 @@ class Prefs(ctx: Context) {
         List(arr.length()) { arr.getString(it) }
     }.getOrDefault(emptyList())
 
+    /** Subtitle look ("size,color,background,edge,position"); see SubStyle. */
+    var subStyle: String?
+        get() = sp.getString("sub_style", null)
+        set(v) = sp.edit().putString("sub_style", v).apply()
+
     // ---- one general audio / subtitle setting for all movies and episodes ----
     fun vodTrackChoice(): Pair<String?, String?> =
         sp.getString("vod_audio_lang", null)?.ifBlank { null } to sp.getString("vod_text_lang", null)?.ifBlank { null }
