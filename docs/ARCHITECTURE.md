@@ -154,7 +154,7 @@ keystore/sparky.jks      signing key (password "sparkyiptv", alias "sparky") —
 |---|---|
 | `playlist` | JSON `{type,name,url,user,pass}` |
 | `account` | JSON `{status,expires,max,format,tz,off}` (`tz` and `off` = server time zone and UTC offset in minutes; since 2.5) |
-| `catchup_format` | `path` or `php`: the recording link format that passed Diagnostics' test (default `path`) |
+| `catchup_format` | `path` (.ts), `hls` (.m3u8) or `php`: the recording link format that last worked (from the test or from playback; default `path`) |
 | `live_format` | `m3u8` or `ts` |
 | `favorites` | string set of `live:/movie:/series:` keys |
 | `pos:<movie:id|episode:id>` | `"pos,dur,ts"` |

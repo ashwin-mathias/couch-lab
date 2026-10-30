@@ -32,7 +32,7 @@ object StreamUrls {
     // ---- catch-up ----
     @Volatile private var offsetMin: Int? = null
     @Volatile private var timezone: String? = null
-    /** "path" ({base}/timeshift/…) or "php" ({base}/streaming/timeshift.php?…). */
+    /** "path" ({base}/timeshift/….ts), "hls" (the same path ending .m3u8) or "php" ({base}/streaming/timeshift.php?…). */
     @Volatile var catchupFormat = "path"
 
     fun setServerTime(acct: AccountInfo?) {
@@ -58,8 +58,21 @@ object StreamUrls {
     /** A recording of a channel from [startMs] (rounded down to the minute) for [minutes]. */
     fun catchup(id: String, startMs: Long, minutes: Int, fmt: String = catchupFormat): String {
         val stamp = serverStamp(startMs)
-        return if (fmt == "php") "$base/streaming/timeshift.php?username=$user&password=$pass&stream=$id&start=$stamp&duration=$minutes"
-        else "$base/timeshift/$user/$pass/$minutes/$stamp/$id.ts"
+        return when (fmt) {
+            "php" -> "$base/streaming/timeshift.php?username=$user&password=$pass&stream=$id&start=$stamp&duration=$minutes"
+            "hls" -> "$base/timeshift/$user/$pass/$minutes/$stamp/$id.m3u8"
+            else -> "$base/timeshift/$user/$pass/$minutes/$stamp/$id.ts"
+        }
+    }
+
+    /** All recording link formats, the remembered working one first. */
+    fun catchupFormats(): List<String> = (listOf(catchupFormat) + listOf("path", "hls", "php")).distinct()
+
+    /** Human name for a link format, for messages and the log. */
+    fun formatName(fmt: String) = when (fmt) {
+        "php" -> "timeshift.php"
+        "hls" -> "timeshift .m3u8"
+        else -> "timeshift .ts"
     }
     fun movie(id: String, ext: String) = "$base/movie/$user/$pass/$id.$ext"
 }

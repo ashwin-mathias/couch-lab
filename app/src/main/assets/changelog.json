@@ -1,5 +1,16 @@
 [
   {
+    "version": "2.5.1",
+    "date": "2026-10-29",
+    "title": "Catch-up fixes",
+    "notes": [
+      "Resuming a pause never just sits there: it tries another recording link, then goes live with a message",
+      "Test catch-up recognises more stream types and reports each link format separately",
+      "Copy everything now works on the phone log page, plus a Select all button",
+      "When the provider says too many connections, the app waits 3 seconds and tries once more"
+    ]
+  },
+  {
     "version": "2.5",
     "date": "2026-10-29",
     "title": "Pause live TV, catch-up and faster switching",

@@ -1,6 +1,6 @@
 # Sparky IPTV — Product specification
 
-Version described: **2.5** (October 2026). This file says **what the app does**. How it looks is in [DESIGN.md](DESIGN.md), how it's built in [ARCHITECTURE.md](ARCHITECTURE.md), and how to prove it works in [ACCEPTANCE.md](ACCEPTANCE.md).
+Version described: **2.5.1** (October 2026). This file says **what the app does**. How it looks is in [DESIGN.md](DESIGN.md), how it's built in [ARCHITECTURE.md](ARCHITECTURE.md), and how to prove it works in [ACCEPTANCE.md](ACCEPTANCE.md).
 
 Words used: in quoted on-screen text, `␣` marks a space that must be kept (hint lines use three spaces around each `·`; meta lines join with `   ·   `). **must** = required; **should** = strong default. "OK" = the remote's centre button. ◀ ▶ ▲ ▼ = D-pad. "Hold OK" = press longer than 600 ms.
 
@@ -189,7 +189,17 @@ Paused or behind live (§7.7):
 - **Rewind / forward** (catch-up channels): a quick run of presses adds up and becomes one jump 0.6 s after the last press. It seeks inside the recording if possible, otherwise it re-opens the recording at the target minute. It can't go back past the channel's catch-up days. Moving to within 30 s of now goes live.
 - **Start of show** plays the recording from the current programme's start time. **Go live** returns to the live stream.
 - Channels without catch-up show the hint "Pause only · no rewind␣␣␣·␣␣␣OK Play / pause␣␣␣·␣␣␣▼ Buttons" and ◀/▶ do nothing.
-- If a recording fails, retry once from the same moment. If it fails again, go live with the clear error as a toast. When a recording reaches its end, request the next part (or go live).
+- **Recording link formats** (2.5.1), tried in order with the remembered working one first:
+  1. `.ts` path.
+  2. `.m3u8` path (`hls`).
+  3. `timeshift.php`.
+  - If a recording errors, try the next format. After the last one, retry once more from the same moment, then go live with the clear error as a toast.
+  - The format that reaches "ready" is remembered.
+- **Never just sit there** (2.5.1): if a recording, or a resumed live pause, isn't playing 10 s after starting, log "stalled" with the player state and try the next format.
+  - After the last format, go live with the toast "Couldn't play the recording (still buffering) — back to live", or "Couldn't resume (…) — back to live".
+- Pauses and resumes are logged ("Paused live on channel 4130 (catch-up)", "Resumed live … after 64 s", "Catch-up: timeshift .ts from 2 min ago …").
+- When a recording reaches its end, request the next part (or go live).
+- **Too many connections** (HTTP 429/458/509) on live or movies: wait 3 s and try once more (the provider may still be counting the stream that just closed), then show the clear message.
 - Changing channel or leaving drops the recording. Recordings don't create resume points or history entries.
 - **Recording link**: `{server}/timeshift/{user}/{pass}/{minutes}/{YYYY-MM-DD:HH-MM}/{stream_id}.ts`, or `{server}/streaming/timeshift.php?username=…&password=…&stream=…&start=…&duration=…` if Diagnostics' test found that format works.
   - The start time is in the **server's local time**: the offset is measured at login from `server_info.time_now` vs `timestamp_now` (rounded to 15 min), then from `server_info.timezone`, then this TV's zone.
@@ -393,10 +403,13 @@ The player screen always holds focus and handles every key itself. The stock Exo
   - The catch-up test result, once run.
   - Playlist type and live format.
 - Buttons: **Test catch-up** (2.5), then Refresh and Clear crash (only if there is one).
-  - Test catch-up asks the provider for a recording from about an hour ago on up to 3 catch-up channels (favourites first), trying the path link and then the timeshift.php link. Success needs HTTP 200/206 and at least 1,000 bytes that look like MPEG-TS (sync byte 0x47) or `#EXTM3U`.
-  - The working format is remembered. The result reads "Catch-up works (timeshift path link, server time UTC+1:00, channel 101)" or "Catch-up didn't work (<channel> <format>: <reason>)".
+  - Test catch-up asks the provider for a recording from about an hour ago on up to 3 catch-up channels (favourites first), trying **all three link formats** on each (2.5.1).
+  - "Video" means any of: MPEG-TS packets (sync byte 0x47 every 188 or 192 bytes, starting anywhere in the first 2,000 bytes), `#EXTM3U` (HLS), or `ftyp` at byte 4 (MP4).
+  - For each format, the log records the HTTP code, content type, size and first 16 bytes in hex.
+  - The result reads like "Catch-up works on channel 4120 · using timeshift .m3u8 · server time UTC+0:00 · timeshift .ts: MPEG-TS · timeshift .m3u8: HLS · timeshift.php: HTTP 404", or "Catch-up didn't work · … · channel X: <per-format reasons>". An empty answer reads "no recording for that time (empty)".
+  - The preferred format is HLS, then .ts, then php.
 - Right side: "Last crash" (if any, in red) and the **last 200 log lines, newest first**. Errors are accent, warnings amber. The lines are focusable so the remote can scroll them.
-- The phone page has a **Copy everything** button.
+- The phone page has a **Copy everything** button. On plain http it falls back to a hidden text box and the copy command; if that fails it selects all the text ("Text selected: tap Copy"). There is also a **Select all** button (2.5.1; before that Copy did nothing on phones).
 - The log is kept in memory and in a file (400 lines, trimmed past 256 KB). Crashes are written to `last_crash.txt` by an uncaught-exception handler. **The password and username are replaced with •••** in every log line.
 - **Cancelled loads are not logged as errors** (2.5): coroutine cancellations and cancelled network calls (for example, a detail page closed before its data arrived) are dropped from the log.
 - The first daily refresh logs "Daily refresh: first update" (before 2.5 it printed the hours since 1970).

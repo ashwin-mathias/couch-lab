@@ -149,4 +149,7 @@ Tick each box. Note the build number at the top of the run.
 | R12 | 2.4 | First refresh logged "last update 498100h ago" | Clear data, set up, open Diagnostics: "Daily refresh: first update" |
 | R13 | 2.4 | A second Install press downloaded the update twice | Press Install twice quickly: one "Downloaded update" log line |
 | R14 | 2.4 | Cancelled loads (e.g. a detail page closed early) were logged as errors | Open and quickly close several movie details: no ERROR lines |
+| R16 | 2.5 | Test catch-up said "not a video stream (65536 bytes)" for real recordings | Test catch-up reports "Catch-up works …" with per-format results |
+| R17 | 2.5 | Resuming after a 1-minute pause sat there doing nothing | Pause 1 min on a catch-up channel, resume: it plays from the pause, or within 10 s goes live with a message; the log explains |
+| R18 | 2.5 | Copy everything did nothing on the phone (http page) | Copy pastes the full log; Select all works |
 | R15 | 2.4 | Vague "This channel isn't playing right now." with no reason | Play on 2 devices: the message names the code (509) and the fix |

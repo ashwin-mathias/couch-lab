@@ -102,6 +102,9 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
     var resumedLiveAt by remember { mutableLongStateOf(0L) }
     var pendingOffset by remember { mutableLongStateOf(0L) }     // sub-minute seek once a recording is ready
     var shiftRetried by remember { mutableStateOf(false) }
+    var fmtIdx by remember { mutableIntStateOf(0) }                 // which recording link format is in use
+    var watchTick by remember { mutableIntStateOf(0) }              // starts the "is it playing?" check
+    var connRetried by remember { mutableStateOf(false) }
     var barVisible by remember { mutableStateOf(false) }
     var onButtons by remember { mutableStateOf(false) }
     var button by remember { mutableIntStateOf(0) }
@@ -142,19 +145,23 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
         PlayerHolder.play(ctx, ch.url, force = true)
     }
     /** Plays the recording from [t] (catch-up channels only). Near "now" it simply goes live. */
-    fun startShift(t: Long) {
+    fun startShift(t: Long, formatIndex: Int = 0) {
         val n = wallNow()
         val earliest = n - ch.archiveDays * 24 * 3_600_000L
         val target = t.coerceAtLeast(earliest)
         if (!canShift || target >= n - 30_000) { goLive(); return }
         val start = target - target % 60_000
         val minutes = ((n - start) / 60_000 + 60).toInt().coerceIn(30, 24 * 60)
+        val formats = com.sparky.iptv.data.StreamUrls.catchupFormats()
+        fmtIdx = formatIndex.coerceIn(0, formats.lastIndex)
+        val fmt = formats[fmtIdx]
         shiftStart = start
         paused = false
         pendingOffset = target - start
         error = null
-        com.sparky.iptv.data.AppLog.i("Catch-up from ${(n - start) / 60_000} min ago on channel ${ch.num}")
-        PlayerHolder.play(ctx, com.sparky.iptv.data.StreamUrls.catchup(ch.id, start, minutes), force = true)
+        com.sparky.iptv.data.AppLog.i("Catch-up: ${com.sparky.iptv.data.StreamUrls.formatName(fmt)} from ${(n - start) / 60_000} min ago on channel ${ch.num}")
+        PlayerHolder.play(ctx, com.sparky.iptv.data.StreamUrls.catchup(ch.id, start, minutes, fmt), force = true)
+        watchTick++
     }
     fun togglePause() {
         when {
@@ -166,6 +173,7 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
                 player.playWhenReady = false
                 paused = true
                 pausedAt = wallNow()
+                com.sparky.iptv.data.AppLog.i("Paused live on channel ${ch.num}${if (canShift) " (catch-up)" else " (no catch-up)"}")
             }
             // Resume a live pause: from the recording if it's been a while, else straight on.
             canShift && wallNow() - pausedAt > 15_000 -> startShift(pausedAt)
@@ -173,6 +181,8 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
                 paused = false
                 resumedLiveAt = wallNow()
                 player.playWhenReady = true
+                com.sparky.iptv.data.AppLog.i("Resumed live on channel ${ch.num} after ${(wallNow() - pausedAt) / 1000} s")
+                watchTick++
             }
         }
     }
@@ -222,6 +232,7 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
         error = null
         triedFallback = false
         shiftRetried = false
+        connRetried = false
         vm.ensureEpg(ch)
         showInfo = true
         infoTick++
@@ -254,6 +265,30 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
         if (s != null && t >= s && player.isCurrentMediaItemSeekable) player.seekTo(t - s) else startShift(t)
         seekTarget = null
     }
+    // Never just sit there: if a recording or a resumed pause isn't playing within 10 s,
+    // try the next recording link format, then go live with a message.
+    LaunchedEffect(watchTick) {
+        if (watchTick == 0) return@LaunchedEffect
+        delay(10_000)
+        if (paused || player.isPlaying) return@LaunchedEffect
+        val state = when (player.playbackState) {
+            Player.STATE_BUFFERING -> "still buffering"
+            Player.STATE_IDLE -> "idle"
+            Player.STATE_ENDED -> "ended"
+            else -> "not playing"
+        }
+        val s = shiftStart
+        if (s != null) {
+            val formats = com.sparky.iptv.data.StreamUrls.catchupFormats()
+            com.sparky.iptv.data.AppLog.w("Catch-up stalled on channel ${ch.num}: ${com.sparky.iptv.data.StreamUrls.formatName(formats[fmtIdx])} $state after 10 s")
+            if (fmtIdx < formats.lastIndex) startShift(watchedTime().coerceAtLeast(s), fmtIdx + 1)
+            else { goLive(); vm.toast = "Couldn't play the recording ($state) — back to live" }
+        } else {
+            com.sparky.iptv.data.AppLog.w("Live resume stalled on channel ${ch.num}: $state after 10 s; going live")
+            goLive()
+            vm.toast = "Couldn't resume ($state) — back to live"
+        }
+    }
     // Keep the times on screen current while behind live.
     LaunchedEffect(behind) {
         while (behind) {
@@ -267,7 +302,11 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
                 val detail = PlaybackErrors.logDetail(e)
                 if (shiftStart != null) {
                     // A recording stopped: try once more from where we were, then go live.
-                    if (!shiftRetried) {
+                    val formats = com.sparky.iptv.data.StreamUrls.catchupFormats()
+                    if (fmtIdx < formats.lastIndex) {
+                        com.sparky.iptv.data.AppLog.w("Catch-up failed on channel ${ch.num} with ${com.sparky.iptv.data.StreamUrls.formatName(formats[fmtIdx])} ($detail); trying the next format")
+                        startShift(watchedTime(), fmtIdx + 1)
+                    } else if (!shiftRetried) {
                         shiftRetried = true
                         com.sparky.iptv.data.AppLog.w("Catch-up stopped on channel ${ch.num} ($detail); retrying")
                         startShift(watchedTime())
@@ -283,6 +322,16 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
                     resumedLiveAt = 0L
                     goLive()
                     vm.toast = "This channel can't pause that long — back to live"
+                    return
+                }
+                // The provider may still be counting the stream we just closed: wait 3 s and try once more.
+                if (PlaybackErrors.httpCode(e) in setOf(429, 458, 509) && !connRetried) {
+                    connRetried = true
+                    com.sparky.iptv.data.AppLog.w("Channel ${ch.num}: provider says too many connections ($detail); retrying in 3 s")
+                    val url = ch.url
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        if (channels.getOrNull(index)?.url == url && shiftStart == null) PlayerHolder.play(ctx, url, force = true)
+                    }, 3000)
                     return
                 }
                 // Some providers only serve one of HLS / MPEG-TS; try the other once (not for login or connection limits).
@@ -306,6 +355,14 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {
                     error = null
+                    if (shiftStart != null) {
+                        val fmt = com.sparky.iptv.data.StreamUrls.catchupFormats()[fmtIdx]
+                        if (fmt != com.sparky.iptv.data.StreamUrls.catchupFormat) {
+                            com.sparky.iptv.data.StreamUrls.catchupFormat = fmt
+                            vm.prefs.catchupFormat = fmt
+                            fmtIdx = 0   // the working format is now first in the list
+                        }
+                    }
                     if (shiftStart != null && pendingOffset > 1000 && player.isCurrentMediaItemSeekable) {
                         player.seekTo(pendingOffset)
                     }
@@ -679,6 +736,7 @@ private fun VodPlayer(vm: AppViewModel, req: PlayRequest.Vod) {
     var seekTarget by remember { mutableStateOf<Long?>(null) }
     var seekTick by remember { mutableIntStateOf(0) }
     var appliedFor by remember { mutableStateOf<String?>(null) }
+    var connRetried by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
 
     val buttons = remember(hasNext) { VodButton.entries.filter { it != VodButton.NEXT || hasNext } }
@@ -733,6 +791,7 @@ private fun VodPlayer(vm: AppViewModel, req: PlayRequest.Vod) {
     LaunchedEffect(item.key) {
         error = null
         appliedFor = null
+        connRetried = false
         val start = if (idx == req.index) req.resumeMs else (vm.progress(item.key)?.pos ?: 0L)
         PlayerHolder.play(ctx, item.url, startMs = start, force = true)
         playing = true
@@ -785,6 +844,16 @@ private fun VodPlayer(vm: AppViewModel, req: PlayRequest.Vod) {
                 playing = player.playWhenReady
             }
             override fun onPlayerError(e: PlaybackException) {
+                // The provider may still be counting the stream we just closed: wait 3 s and try once more.
+                if (PlaybackErrors.httpCode(e) in setOf(429, 458, 509) && !connRetried) {
+                    connRetried = true
+                    val pos = PlayerHolder.currentPosition()
+                    com.sparky.iptv.data.AppLog.w("${item.title}: provider says too many connections (${PlaybackErrors.logDetail(e)}); retrying in 3 s")
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        if (req.items.getOrNull(idx)?.key == item.key) PlayerHolder.play(ctx, item.url, startMs = pos, force = true)
+                    }, 3000)
+                    return
+                }
                 com.sparky.iptv.data.AppLog.e("Playback failed for ${item.title}: ${PlaybackErrors.logDetail(e)}")
                 error = PlaybackErrors.message(e, if (item.saveProgress) "title" else "recording")
                 barVisible = true

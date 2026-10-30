@@ -298,8 +298,8 @@ class Repository(private val ctx: Context, val prefs: Prefs) {
     }
 
     /**
-     * Requests a recording from about an hour ago on [channels] (tried in order) and reports whether
-     * the provider serves it. Remembers the link format that works.
+     * Requests a recording from about an hour ago on up to 3 catch-up channels and reports, per link
+     * format, what the provider sent. Remembers the first format that returns video.
      */
     suspend fun testCatchup(channels: List<Channel>): String = withContext(Dispatchers.IO) {
         val p = prefs.playlist ?: return@withContext "No login set up."
@@ -313,36 +313,59 @@ class Repository(private val ctx: Context, val prefs: Prefs) {
         applyCatchupSettings()
         val quick = http.newBuilder().readTimeout(15, TimeUnit.SECONDS).build()
         val start = System.currentTimeMillis() - 60 * 60_000L
-        var lastErr = ""
+        val off = StreamUrls.serverOffsetMs(start) / 60_000
+        val zone = "server time UTC${if (off >= 0) "+" else "-"}${Math.abs(off) / 60}:${"%02d".format(Math.abs(off % 60))}"
+        var lastReport = ""
         for (ch in channels.take(3)) {
-            for (fmt in listOf("path", "php")) {
+            val results = ArrayList<Pair<String, String?>>()   // format to detected kind (null = not video)
+            val notes = ArrayList<String>()
+            for (fmt in listOf("path", "hls", "php")) {
                 val url = StreamUrls.catchup(ch.id, start, 30, fmt)
-                val result = runCatching {
+                val note = runCatching {
                     val req = Request.Builder().url(url).header("User-Agent", USER_AGENT).header("Range", "bytes=0-65535").build()
                     quick.newCall(req).execute().use { r ->
-                        if (!r.isSuccessful) throw IOException("HTTP ${r.code}")
+                        val type = r.header("Content-Type") ?: "no type"
+                        if (!r.isSuccessful) return@use null to "HTTP ${r.code}"
                         val bytes = r.body?.source()?.let { src -> src.request(65536); src.buffer.snapshot() }
                         val n = bytes?.size ?: 0
-                        val looksTs = n > 188 && bytes!![0] == 0x47.toByte()
-                        val looksM3u = n > 0 && bytes!!.utf8().startsWith("#EXTM3U")
-                        if (n < 1000 || !(looksTs || looksM3u)) throw IOException("not a video stream ($n bytes)")
-                        r.code
+                        if (n == 0) return@use null to "no recording for that time (empty)"
+                        val kind = sniffVideo(bytes!!)
+                        val head = bytes.substring(0, minOf(16, n)).hex()
+                        AppLog.i("Catch-up test ${ch.num} ${StreamUrls.formatName(fmt)}: HTTP ${r.code} · $type · $n bytes · starts $head · ${kind ?: "not video"}")
+                        if (kind != null) kind to kind
+                        else null to "not video ($type, starts \"${AppLog.redact(bytes.substring(0, minOf(40, n)).utf8()).filter { it >= ' ' }}\")"
                     }
-                }
-                if (result.isSuccess) {
-                    prefs.catchupFormat = fmt
-                    StreamUrls.catchupFormat = fmt
-                    val off = StreamUrls.serverOffsetMs(start) / 60_000
-                    val msg = "Catch-up works (${if (fmt == "php") "timeshift.php" else "timeshift path"} link, " +
-                        "server time UTC${if (off >= 0) "+" else ""}${off / 60}:${"%02d".format(Math.abs(off % 60))}, channel ${ch.num})"
-                    AppLog.i(msg)
-                    return@withContext msg
-                }
-                lastErr = "${ch.num} $fmt: ${result.exceptionOrNull()?.message}"
-                AppLog.w("Catch-up test failed · $lastErr")
+                }.getOrElse { null to (it.message ?: it.javaClass.simpleName) }
+                results.add(fmt to note.first)
+                notes.add("${StreamUrls.formatName(fmt)}: ${note.second}")
             }
+            // Prefer HLS (seekable), then .ts, then php.
+            val working = listOf("hls", "path", "php").firstOrNull { f -> results.any { it.first == f && it.second != null } }
+            if (working != null) {
+                prefs.catchupFormat = working
+                StreamUrls.catchupFormat = working
+                val msg = "Catch-up works on channel ${ch.num} · using ${StreamUrls.formatName(working)} · $zone · " + notes.joinToString(" · ")
+                AppLog.i(msg)
+                return@withContext msg
+            }
+            lastReport = "channel ${ch.num}: " + notes.joinToString(" · ")
+            AppLog.w("Catch-up test · $lastReport")
         }
-        "Catch-up didn't work ($lastErr)"
+        "Catch-up didn't work · $zone · $lastReport"
+    }
+
+    /** Recognises the start of a video stream: MPEG-TS (188/192-byte packets, any offset), HLS or MP4. */
+    private fun sniffVideo(b: okio.ByteString): String? {
+        val n = b.size
+        fun at(i: Int) = i < n && b[i] == 0x47.toByte()
+        for (o in 0 until minOf(n, 2000)) {
+            if (at(o) && at(o + 188) && at(o + 376)) return "MPEG-TS"
+            if (at(o) && at(o + 192) && at(o + 384)) return "MPEG-TS (192)"
+        }
+        val text = b.substring(0, minOf(n, 1024)).utf8()
+        if (text.trimStart().startsWith("#EXTM3U")) return "HLS"
+        if (n > 12 && b.substring(4, 8).utf8() == "ftyp") return "MP4"
+        return null
     }
 
     suspend fun movieInfo(m: Movie): MovieInfo? {
