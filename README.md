@@ -31,9 +31,14 @@ To update, repeat step 4. The code always points to the newest build. Your login
 | --- | --- | --- |
 | Any list | Hold OK | Add / remove favorite |
 | Full-screen live TV | ▲ / ▼ | Next / previous channel |
+| Full-screen live TV | OK | Pause / play (catch-up channels resume from where you paused) |
 | Full-screen live TV | ◀ or Back | Back to the page you came from |
 | Full-screen live TV | ▶ | Audio & subtitles |
 | Full-screen live TV | Hold OK | Add / remove favorite |
+| Live TV, paused or behind live | ◀ / ▶ | Rewind / forward (hold to go faster) |
+| Live TV, paused or behind live | ▼ | Buttons: Start of show, Go live, Audio & subtitles |
+| Live TV, paused or behind live | Back | Leave |
+| TV guide | ◀ on the first show | Go back in time (catch-up channels), ↺ shows can be replayed |
 | Movies & episodes | OK | Play / pause |
 | Movies & episodes | ◀ / ▶ | Back / forward 10 seconds (hold to go faster) |
 | Movies & episodes | ▼ | Buttons: audio & subtitles, next episode, start over |

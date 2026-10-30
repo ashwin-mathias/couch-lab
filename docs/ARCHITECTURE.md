@@ -16,7 +16,7 @@ How the app is built: the stack, the code layout, the data, storage, and the rel
 | Compose BOM | 2024.09.00 (`ui`, `foundation`) |
 | `androidx.tv:tv-material` | 1.0.0 |
 | core-ktx / activity-compose / lifecycle | 1.13.1 / 1.9.2 / 2.8.6 |
-| Media3 (`exoplayer`, `exoplayer-hls`, `ui`) | 1.4.1 |
+| Media3 (`exoplayer`, `exoplayer-hls`, `ui`, `datasource-okhttp` since 2.5) | 1.4.1 |
 | OkHttp | 4.12.0 |
 | Coil compose | 2.7.0 |
 | NanoHTTPD | 2.3.1 |
@@ -54,11 +54,12 @@ data/
   Snapshot.kt            compact binary cache (snap_live/movies/series.bin)
   Repository.kt          OkHttp client, load steps, cached load (live → vod), refresh, download-to-disk, validate,
                          short EPG, movie/series info; M3U parser
-  AppLog.kt              redacting activity log + crash file
+  AppLog.kt              redacting activity log + crash file; drops cancelled loads (isCancellation)
   Updater.kt             GitHub latest-release check, install permission, FileProvider install
 player/
   PlayerHolder.kt        ONE shared ExoPlayer for previews and full screen
   TrackHelper.kt         list/select audio and subtitle tracks, reset, re-apply remembered language
+  PlaybackErrors.kt      HTTP code from a player error → clear message (SPEC §7.8), log detail, account-problem check
   SubtitleStyle.kt       SubStyle (options, encode/decode, apply to a SubtitleView) + SubtitleStyleState (shared Compose state)
 setup/
   SetupServer.kt         NanoHTTPD login form server (8080–8090); Net.localIp; Qr.bitmap
@@ -76,7 +77,7 @@ ui/
                          AboutScreen, PlayerScreen (LivePlayer, VodPlayer, TrackPanel),
                          SubtitleStyleScreen (screen, SubtitleStyleOptions shared with TrackPanel, preview)
 assets/  changelog.json, about.json
-res/     drawable/*.xml icons, drawable-nodpi/{logo,avatar}.png, drawable-xhdpi/banner.png, mipmap-*/ic_launcher.png,
+res/     drawable/*.xml icons, drawable-nodpi/{logo,avatar}.png + sparky.jpg, drawable-xhdpi/banner.png, mipmap-*/ic_launcher.png,
          font/inter_*.otf, values/{strings,themes}.xml, xml/file_paths.xml
 keystore/sparky.jks      signing key (password "sparkyiptv", alias "sparky") — must be reused so updates install
 ```
@@ -93,6 +94,8 @@ keystore/sparky.jks      signing key (password "sparkyiptv", alias "sparky") —
 | `get_vod_categories` / `get_vod_streams` | Movies (`stream_id`, `name`, `stream_icon`, `category_id`, `rating`, `added`, `container_extension`) |
 | `get_series_categories` / `get_series` | Series (`series_id`, `name`, `cover`, `category_id`, `plot`, `releaseDate`/`release_date`/`year`, `rating`, `genre`, `last_modified`) |
 | `get_short_epg&stream_id=X&limit=12` | Now/next. `epg_listings[]` with `start_timestamp`, `stop_timestamp`; **title and description are Base64** |
+| `get_simple_data_table&stream_id=X` | Full listing including **past** shows (same fields plus `has_archive`). Used for the guide's past shows on catch-up channels (2.5) |
+| Login `server_info` | `time_now` (server local "yyyy-MM-dd HH:mm:ss"), `timestamp_now` (epoch s) → UTC offset in minutes (rounded to 15); `timezone` name as the fallback |
 | `get_vod_info&vod_id=X` | Movie detail (`info.plot|description`, `releasedate`, `genre`, `duration_secs|duration "hh:mm:ss"`, `backdrop_path[0]`, `cast|actors`, `director`) |
 | `get_series_info&series_id=X` | Seasons and episodes. `episodes` may be an **object keyed by season** or an **array (of arrays)**. Episode: `id`, `season`, `episode_num`, `title`, `container_extension`, `info.{duration_secs, duration, plot, movie_image}` |
 
@@ -150,7 +153,8 @@ keystore/sparky.jks      signing key (password "sparkyiptv", alias "sparky") —
 | Key | Value |
 |---|---|
 | `playlist` | JSON `{type,name,url,user,pass}` |
-| `account` | JSON `{status,expires,max,format}` |
+| `account` | JSON `{status,expires,max,format,tz,off}` (`tz` and `off` = server time zone and UTC offset in minutes; since 2.5) |
+| `catchup_format` | `path` or `php`: the recording link format that passed Diagnostics' test (default `path`) |
 | `live_format` | `m3u8` or `ts` |
 | `favorites` | string set of `live:/movie:/series:` keys |
 | `pos:<movie:id|episode:id>` | `"pos,dur,ts"` |
@@ -171,7 +175,17 @@ Files in `filesDir`: `snap_*.bin`, `cache_m3u.json`, `app_log.txt`, `last_crash.
 
 ## 7. Playback
 
-- `PlayerHolder`: a **single ExoPlayer** created on first use with `DefaultHttpDataSource` (our UA, cross-protocol redirects, connect 15 s, read 20 s) and `DefaultMediaSourceFactory`.
+- `PlayerHolder`: a **single ExoPlayer** created on first use (2.5):
+  - `OkHttpDataSource` over **one shared OkHttpClient** (our UA, redirects, connect 15 s, read 20 s), so the connection stays open between channel switches.
+  - `DefaultLoadControl` with `bufferForPlaybackMs = 1000` and `bufferForPlaybackAfterRebuffer = 2000` (the defaults are 2500 and 5000); min and max buffer stay at the defaults.
+  - `DefaultMediaSourceFactory`.
+- **Never more than one stream.** The account allows 1 connection; preview, full screen and catch-up all reuse the single player.
+- **Live player state (2.5)**: `shiftStart` (the recording's start, or null for live), `paused`, `pausedAt`, plus a virtual-focus control bar.
+  - `StreamUrls.catchup(id, startMs, minutes)` builds recording links in the server's local time.
+  - A sub-minute start is applied by `seekTo` once ready, if the stream is seekable.
+  - Seeks are debounced by 600 ms, then either `seekTo` inside the recording or a new recording link.
+  - The stream starts 300 ms after the last channel key press. `onRenderedFirstFrame` is used to time switches (`vm.recordSwitch`).
+- `VodItem.saveProgress = false` marks recordings played from the guide; they don't store resume points.
   - `play(url, startMs, force)`: if the URL is unchanged and the player isn't idle, just resume. Otherwise call `TrackHelper.reset` (clear overrides, subtitles off), set the item (MIME `APPLICATION_M3U8` for `.m3u8`), prepare and play.
   - `stop` clears items; `pause`/`resume`; `currentPosition`; `duration` (0 if unknown).
 - `PlayerSurface`: an `AndroidView(PlayerView)` with `useController = false`, **not focusable** (`FOCUS_BLOCK_DESCENDANTS`), buffering spinner shown while playing, fit mode, black shutter, `keepScreenOn`.
@@ -196,6 +210,8 @@ BackHandler(enabled = panelOpen) { panelOpen = false }   // registered last = hi
 
 ## 8. Logging and privacy
 - `AppLog.setSecrets(pass, user)` is called before any network call. Every line passes through `redact`, which replaces each secret with `•••`.
+- `AppLog.e(msg, t)` drops cancellations: `CancellationException`, `InterruptedIOException` (but not `SocketTimeoutException`), or an `IOException` "canceled" / "socket closed", anywhere in the cause chain. The same check guards warnings for background guide loads.
+- `about.json` (2.5): `name`, `role`, `dog`, `venmo`, `venmoHandle`, `zelle`. The QR codes are generated at runtime with `Qr.bitmap`. LinkedIn was removed.
 - The crash handler writes `"time · version · thread\n" + redacted stack` and then calls the previous handler.
 
 ## 9. Build, release, install

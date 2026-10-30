@@ -61,7 +61,12 @@ sealed interface PlayRequest {
     data class Vod(val items: List<VodItem>, val index: Int, val resumeMs: Long) : PlayRequest
 }
 
-data class VodItem(val key: String, val title: String, val subtitle: String, val url: String, val seriesId: String? = null, val episodeId: String? = null)
+data class VodItem(
+    val key: String, val title: String, val subtitle: String, val url: String,
+    val seriesId: String? = null, val episodeId: String? = null,
+    /** Catch-up recordings don't keep resume points. */
+    val saveProgress: Boolean = true,
+)
 
 const val GROUP_FAV = "__fav"
 const val GROUP_ALL = "__all"
@@ -274,6 +279,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var updateProgress by mutableStateOf<String?>(null)
         private set
     private var updateNoticeShown = false
+    private var installLockUntil = 0L
 
     fun checkForUpdate(manual: Boolean = false) {
         viewModelScope.launch {
@@ -297,7 +303,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             Updater.openInstallPermission(app)
             return
         }
-        if (updateProgress != null) return
+        // Ignore extra presses while downloading, and for 10 s after the installer opens.
+        if (updateProgress != null || System.currentTimeMillis() < installLockUntil) return
+        installLockUntil = System.currentTimeMillis() + 10_000
         viewModelScope.launch {
             try {
                 updateProgress = "Starting download…"
@@ -307,6 +315,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 AppLog.i("Downloaded update build ${u.build} (${Repository.mb(f.length())})")
                 updateProgress = null
+                installLockUntil = System.currentTimeMillis() + 10_000
                 Updater.launchInstaller(app)
             } catch (t: Throwable) {
                 if (t is kotlinx.coroutines.CancellationException) throw t
@@ -525,7 +534,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         // Version 2.2 records catch-up info; fetch once so Diagnostics can report it.
         val needCatchup = !prefs.catchupScanned && prefs.playlist?.type == "xtream"
         if (age > 24 * 60 * 60_000L || needCatchup) {
-            AppLog.i("Daily refresh: last update ${age / 3_600_000}h ago")
+            AppLog.i(if (prefs.lastRefresh <= 0L) "Daily refresh: first update" else "Daily refresh: last update ${age / 3_600_000}h ago")
             refreshInBackground()
         }
     }
@@ -556,12 +565,78 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 val list = epgLimit.withPermit {
                     runCatching { withContext(Dispatchers.IO) { repo.shortEpg(ch) } }.getOrDefault(emptyList())
                 }
-                epg[ch.id] = list
+                // Keep past shows already loaded for catch-up.
+                val firstNew = list.firstOrNull()?.start ?: Long.MAX_VALUE
+                val past = epg[ch.id].orEmpty().filter { it.start < firstNew }
+                epg[ch.id] = if (list.isEmpty()) epg[ch.id].orEmpty() else past + list
                 epgFetchedAt[ch.id] = System.currentTimeMillis()
             } finally {
                 epgInFlight.remove(ch.id)
             }
         }
+    }
+
+    private val fullEpgAt = HashMap<String, Long>()
+    private val fullEpgInFlight = HashSet<String>()
+
+    /** Loads past shows too (catch-up channels only), for scrolling back in the guide. */
+    fun ensureFullEpg(ch: Channel) {
+        if (prefs.playlist?.type != "xtream" || ch.archiveDays <= 0) return
+        val now = System.currentTimeMillis()
+        if (now - (fullEpgAt[ch.id] ?: 0L) < 30 * 60_000L || !fullEpgInFlight.add(ch.id)) return
+        viewModelScope.launch {
+            try {
+                val list = epgLimit.withPermit {
+                    runCatching { withContext(Dispatchers.IO) { repo.fullEpg(ch) } }
+                        .onFailure { if (!AppLog.isCancellation(it)) AppLog.w("Full guide for ${ch.num} failed: ${it.message}") }
+                        .getOrDefault(emptyList())
+                }
+                if (list.isNotEmpty()) {
+                    epg[ch.id] = list.distinctBy { it.start }.sortedBy { it.start }
+                    epgFetchedAt[ch.id] = System.currentTimeMillis()
+                }
+                fullEpgAt[ch.id] = System.currentTimeMillis()
+            } finally {
+                fullEpgInFlight.remove(ch.id)
+            }
+        }
+    }
+
+    // ---------- catch-up ----------
+    /** True when [e] can be replayed: a past show on a catch-up channel, within its catch-up days. */
+    fun canReplay(ch: Channel, e: EpgEntry, now: Long = System.currentTimeMillis()): Boolean =
+        prefs.playlist?.type == "xtream" && ch.archiveDays > 0 && e.end <= now &&
+            e.start >= now - ch.archiveDays * 24 * 3_600_000L
+
+    /** Plays a past show from its start, in the movie player. */
+    fun playCatchup(ch: Channel, e: EpgEntry) {
+        val minutes = ((e.end - e.start) / 60_000L + 10).toInt().coerceAtLeast(10)
+        val url = com.sparky.iptv.data.StreamUrls.catchup(ch.id, e.start, minutes)
+        AppLog.i("Catch-up: channel ${ch.num}, show at ${e.start}")
+        val sub = "${e.title} · aired ${com.sparky.iptv.ui.components.fmtDay(e.start)}, ${com.sparky.iptv.ui.components.fmtClock(e.start)}"
+        push(Screen.Player(PlayRequest.Vod(listOf(VodItem("catchup:${ch.id}:${e.start}", ch.display, sub, url, saveProgress = false)), 0, 0L)))
+    }
+
+    var catchupTest by mutableStateOf<String?>(null)
+        private set
+
+    fun testCatchup() {
+        if (catchupTest == "Testing…") return
+        catchupTest = "Testing…"
+        viewModelScope.launch {
+            val archive = library.channels.filter { it.archiveDays > 0 && !it.divider }
+            val ordered = archive.filter { it.favKey in favorites } + archive.filterNot { it.favKey in favorites }
+            catchupTest = runCatching { repo.testCatchup(ordered) }.getOrElse { "Catch-up test failed: ${it.message}" }
+        }
+    }
+
+    // ---------- channel switch timing ----------
+    val switchTimes = mutableStateListOf<Long>()
+
+    fun recordSwitch(ms: Long) {
+        switchTimes.add(ms)
+        while (switchTimes.size > 10) switchTimes.removeAt(0)
+        AppLog.i("Channel switch: %.1f s".format(ms / 1000.0))
     }
 
     fun nowNext(chId: String, now: Long): Pair<EpgEntry?, EpgEntry?> {

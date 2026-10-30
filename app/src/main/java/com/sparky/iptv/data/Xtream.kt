@@ -40,11 +40,14 @@ class XtreamClient(private val http: OkHttpClient, private val p: Playlist) {
             "ts" in fmtList -> "ts"
             else -> fmtList.first()
         }
+        val si = root.optJSONObject("server_info")
         return AccountInfo(
             status = status,
             expires = ui.s("exp_date")?.toLongOrNull()?.times(1000),
             maxConnections = ui.s("max_connections"),
             liveFormat = fmt,
+            timezone = si?.s("timezone"),
+            offsetMin = si?.let { serverOffsetMinutes(it.s("time_now"), it.s("timestamp_now")) },
         )
     }
 
@@ -53,6 +56,16 @@ class XtreamClient(private val http: OkHttpClient, private val p: Playlist) {
     fun episodeUrl(id: String, ext: String) = "$base/series/${p.user}/${p.pass}/$id.$ext"
 
     companion object {
+        /** The server's UTC offset, from its local clock ("2026-10-29 18:00:00") and its epoch seconds. */
+        fun serverOffsetMinutes(timeNow: String?, timestampNow: String?): Int? = runCatching {
+            val f = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
+            f.timeZone = java.util.TimeZone.getTimeZone("UTC")
+            val local = f.parse(timeNow ?: return null)!!.time
+            val utc = (timestampNow ?: return null).toLong() * 1000
+            val mins = Math.round((local - utc) / 60_000.0 / 15.0).toInt() * 15
+            mins.takeIf { it in -14 * 60..14 * 60 }
+        }.getOrNull()
+
         fun normalizeBase(url: String): String {
             var u = url.trim().trimEnd('/')
             if (!u.startsWith("http://", true) && !u.startsWith("https://", true)) u = "http://$u"
@@ -186,7 +199,7 @@ object Parsers {
             val o = arr.optJSONObject(i) ?: continue
             val start = o.s("start_timestamp")?.toLongOrNull() ?: continue
             val end = o.s("stop_timestamp")?.toLongOrNull() ?: continue
-            out.add(EpgEntry(b64(o.s("title")), b64(o.s("description")), start * 1000, end * 1000))
+            out.add(EpgEntry(b64(o.s("title")), b64(o.s("description")), start * 1000, end * 1000, archive = o.s("has_archive") == "1"))
         }
         return out.sortedBy { it.start }
     }

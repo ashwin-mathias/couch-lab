@@ -42,6 +42,8 @@ import com.sparky.iptv.ui.components.FocusItem
 import com.sparky.iptv.ui.components.Label
 import com.sparky.iptv.ui.components.T
 import com.sparky.iptv.ui.components.u
+import com.sparky.iptv.ui.components.su
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
@@ -49,7 +51,14 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 
 data class Release(val version: String, val date: String, val title: String, val notes: List<String>)
-data class AboutInfo(val name: String, val role: String, val linkedin: String)
+data class AboutInfo(
+    val name: String,
+    val role: String,
+    val dog: String,
+    val venmo: String,
+    val venmoHandle: String,
+    val zelle: String,
+)
 
 private fun readAsset(ctx: Context, name: String): String? =
     runCatching { ctx.assets.open(name).bufferedReader().use { it.readText() } }.getOrNull()
@@ -59,7 +68,10 @@ fun loadAbout(ctx: Context): AboutInfo {
     return AboutInfo(
         name = o?.optString("name").orEmpty().ifBlank { "Ashwin Mathias" },
         role = o?.optString("role").orEmpty(),
-        linkedin = o?.optString("linkedin").orEmpty().trim(),
+        dog = o?.optString("dog").orEmpty().ifBlank { "Sparky" },
+        venmo = o?.optString("venmo").orEmpty().trim(),
+        venmoHandle = o?.optString("venmoHandle").orEmpty().trim(),
+        zelle = o?.optString("zelle").orEmpty().trim(),
     )
 }
 
@@ -98,11 +110,9 @@ fun AboutScreen(vm: AppViewModel) {
     val ctx = LocalContext.current
     val about = remember { loadAbout(ctx) }
     val releases = remember { loadReleases(ctx) }
-    val qr = remember(about.linkedin) {
-        about.linkedin.takeIf { it.isNotBlank() }?.let {
-            Qr.bitmap(if (it.startsWith("http")) it else "https://$it", 360)
-        }
-    }
+    // Treat links as clean QR codes in the app's style (no bank-app screenshots).
+    val venmoQr = remember(about.venmo) { about.venmo.takeIf { it.isNotBlank() }?.let { Qr.bitmap(it, 360) } }
+    val zelleQr = remember(about.zelle) { about.zelle.takeIf { it.isNotBlank() }?.let { Qr.bitmap(it, 360) } }
     val version = remember {
         runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: ""
     }
@@ -119,32 +129,50 @@ fun AboutScreen(vm: AppViewModel) {
                 Image(
                     painter = painterResource(R.drawable.avatar),
                     contentDescription = null,
-                    modifier = Modifier.size(96.u).clip(CircleShape),
+                    modifier = Modifier.size(64.u).clip(CircleShape),
                 )
-                Spacer(Modifier.width(20.u))
-                Column(verticalArrangement = Arrangement.spacedBy(4.u)) {
-                    T(about.name, size = 26, weight = FontWeight.Bold)
-                    if (about.role.isNotBlank()) T(about.role, size = 14, color = C.Muted)
+                Spacer(Modifier.width(16.u))
+                Column(verticalArrangement = Arrangement.spacedBy(3.u)) {
+                    T(about.name, size = 22, weight = FontWeight.Bold)
+                    if (about.role.isNotBlank()) T(about.role, size = 13, color = C.Muted)
                 }
             }
-            Row(
+            // Sparky: the dog the app is named after, with ways to buy her a treat.
+            Column(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(16.u)).background(C.Panel).padding(18.u),
-                verticalAlignment = Alignment.CenterVertically,
+                verticalArrangement = Arrangement.spacedBy(14.u),
             ) {
-                Box(
-                    Modifier.size(132.u).clip(RoundedCornerShape(12.u)).background(if (qr != null) C.Text else C.Raised).padding(10.u),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (qr != null) Image(bitmap = qr, contentDescription = "LinkedIn QR code", modifier = Modifier.fillMaxSize())
-                    else T("in", size = 34, weight = FontWeight.Bold, color = C.Dim)
-                }
-                Spacer(Modifier.width(18.u))
-                Column(verticalArrangement = Arrangement.spacedBy(6.u)) {
-                    T("Connect on LinkedIn", size = 16, weight = FontWeight.SemiBold)
-                    T(
-                        if (qr != null) "Scan with your phone camera" else "Link coming soon",
-                        size = 13, color = C.Dim,
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Image(
+                        painter = painterResource(R.drawable.sparky),
+                        contentDescription = about.dog,
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        modifier = Modifier.size(96.u).clip(CircleShape),
                     )
+                    Spacer(Modifier.width(16.u))
+                    androidx.tv.material3.Text(
+                        text = androidx.compose.ui.text.buildAnnotatedString {
+                            append("Designed with love for ")
+                            pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Bold, color = C.Text))
+                            append(about.dog)
+                            pop()
+                            append(", who sits on the couch while we watch TV.")
+                        },
+                        style = androidx.compose.ui.text.TextStyle(
+                            fontFamily = com.sparky.iptv.ui.components.Inter,
+                            fontSize = 15.su,
+                            lineHeight = (15 * 1.45f * 0.75f).sp,
+                            color = C.Text2,
+                        ),
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                if (venmoQr != null || zelleQr != null) {
+                    T("Buy ${about.dog} a treat", size = 14, weight = FontWeight.SemiBold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.u)) {
+                        venmoQr?.let { TreatQr(it, "Venmo", about.venmoHandle) }
+                        zelleQr?.let { TreatQr(it, "Zelle", "Scan with your bank app") }
+                    }
                 }
             }
             Spacer(Modifier.weight(1f))
@@ -214,5 +242,16 @@ private fun Info2(label: String, value: String) {
     Row {
         T(label, size = 13, color = C.Dim, modifier = Modifier.width(100.u))
         T(value, size = 13, color = C.Text2, modifier = Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun TreatQr(bmp: androidx.compose.ui.graphics.ImageBitmap, label: String, sub: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.u)) {
+        Box(Modifier.size(128.u).clip(RoundedCornerShape(12.u)).background(C.Text).padding(10.u)) {
+            Image(bitmap = bmp, contentDescription = "$label QR code", modifier = Modifier.fillMaxSize())
+        }
+        T(label, size = 13, weight = FontWeight.SemiBold)
+        if (sub.isNotBlank()) T(sub, size = 11, color = C.Dim)
     }
 }

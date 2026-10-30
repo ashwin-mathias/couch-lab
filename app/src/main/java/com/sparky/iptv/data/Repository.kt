@@ -73,6 +73,7 @@ class Repository(private val ctx: Context, val prefs: Prefs) {
                 return@runCatching M3u.parse(f.readText())
             }
             StreamUrls.set(p, prefs.liveFormat)
+            applyCatchupSettings()
             val t0 = System.currentTimeMillis()
             val live = Snapshot.readLive(snapLive) { i, n -> onProgress("Channels ${pct(i, n)}") }
                 ?: migrate("get_live_categories", "get_live_streams") { cats, items ->
@@ -156,6 +157,7 @@ class Repository(private val ctx: Context, val prefs: Prefs) {
             prefs.account = acct
             prefs.liveFormat = acct.liveFormat
             StreamUrls.set(p, acct.liveFormat)
+            applyCatchupSettings()
             listener.update(0, StepStatus.DONE, acct.status ?: "Signed in")
             AppLog.i("Signed in · status ${acct.status} · format ${acct.liveFormat}")
         } catch (e: Exception) {
@@ -281,6 +283,66 @@ class Repository(private val ctx: Context, val prefs: Prefs) {
     suspend fun shortEpg(ch: Channel): List<EpgEntry> {
         val x = xtream() ?: return emptyList()
         return Parsers.shortEpg(x.raw("get_short_epg", "&stream_id=${ch.id}&limit=12"))
+    }
+
+    /** Server time and the working link format, for building catch-up links. */
+    fun applyCatchupSettings() {
+        StreamUrls.setServerTime(prefs.account)
+        StreamUrls.catchupFormat = prefs.catchupFormat ?: "path"
+    }
+
+    /** Full listing for a catch-up channel, including past shows (get_simple_data_table). */
+    suspend fun fullEpg(ch: Channel): List<EpgEntry> {
+        val x = xtream() ?: return emptyList()
+        return Parsers.shortEpg(x.raw("get_simple_data_table", "&stream_id=${ch.id}"))
+    }
+
+    /**
+     * Requests a recording from about an hour ago on [channels] (tried in order) and reports whether
+     * the provider serves it. Remembers the link format that works.
+     */
+    suspend fun testCatchup(channels: List<Channel>): String = withContext(Dispatchers.IO) {
+        val p = prefs.playlist ?: return@withContext "No login set up."
+        if (p.type != "xtream") return@withContext "Catch-up needs an Xtream login."
+        if (channels.isEmpty()) return@withContext "No channels offer catch-up."
+        // Make sure we know the server's clock (older logins didn't store it).
+        if (prefs.account?.offsetMin == null) {
+            runCatching { XtreamClient(http, p).authenticate() }.getOrNull()?.let { prefs.account = it }
+        }
+        StreamUrls.set(p, prefs.liveFormat)
+        applyCatchupSettings()
+        val quick = http.newBuilder().readTimeout(15, TimeUnit.SECONDS).build()
+        val start = System.currentTimeMillis() - 60 * 60_000L
+        var lastErr = ""
+        for (ch in channels.take(3)) {
+            for (fmt in listOf("path", "php")) {
+                val url = StreamUrls.catchup(ch.id, start, 30, fmt)
+                val result = runCatching {
+                    val req = Request.Builder().url(url).header("User-Agent", USER_AGENT).header("Range", "bytes=0-65535").build()
+                    quick.newCall(req).execute().use { r ->
+                        if (!r.isSuccessful) throw IOException("HTTP ${r.code}")
+                        val bytes = r.body?.source()?.let { src -> src.request(65536); src.buffer.snapshot() }
+                        val n = bytes?.size ?: 0
+                        val looksTs = n > 188 && bytes!![0] == 0x47.toByte()
+                        val looksM3u = n > 0 && bytes!!.utf8().startsWith("#EXTM3U")
+                        if (n < 1000 || !(looksTs || looksM3u)) throw IOException("not a video stream ($n bytes)")
+                        r.code
+                    }
+                }
+                if (result.isSuccess) {
+                    prefs.catchupFormat = fmt
+                    StreamUrls.catchupFormat = fmt
+                    val off = StreamUrls.serverOffsetMs(start) / 60_000
+                    val msg = "Catch-up works (${if (fmt == "php") "timeshift.php" else "timeshift path"} link, " +
+                        "server time UTC${if (off >= 0) "+" else ""}${off / 60}:${"%02d".format(Math.abs(off % 60))}, channel ${ch.num})"
+                    AppLog.i(msg)
+                    return@withContext msg
+                }
+                lastErr = "${ch.num} $fmt: ${result.exceptionOrNull()?.message}"
+                AppLog.w("Catch-up test failed · $lastErr")
+            }
+        }
+        "Catch-up didn't work ($lastErr)"
     }
 
     suspend fun movieInfo(m: Movie): MovieInfo? {

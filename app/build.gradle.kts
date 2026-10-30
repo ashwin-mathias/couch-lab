@@ -7,7 +7,7 @@ plugins {
 // Every GitHub build gets a higher version so updates install over the old app.
 val buildNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
 // Bump this with each release and add a matching entry to app/src/main/assets/changelog.json.
-val appVersion = "2.4"
+val appVersion = "2.5"
 
 android {
     namespace = "com.sparky.iptv"
@@ -80,6 +80,7 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.4.1")
     implementation("androidx.media3:media3-exoplayer-hls:1.4.1")
     implementation("androidx.media3:media3-ui:1.4.1")
+    implementation("androidx.media3:media3-datasource-okhttp:1.4.1")
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.coil-kt:coil-compose:2.7.0")

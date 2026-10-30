@@ -52,8 +52,25 @@ object AppLog {
 
     fun i(msg: String) = add("INFO ", msg)
     fun w(msg: String) = add("WARN ", msg)
-    fun e(msg: String, t: Throwable? = null) =
+    fun e(msg: String, t: Throwable? = null) {
+        // A load that was cancelled (page closed, newer request started) is not a problem.
+        if (t != null && isCancellation(t)) return
         add("ERROR", if (t != null) "$msg: ${t.javaClass.simpleName}: ${t.message}" else msg)
+    }
+
+    /** True for cancelled coroutines and cancelled network calls, anywhere in the cause chain. */
+    fun isCancellation(t: Throwable): Boolean {
+        var c: Throwable? = t
+        var depth = 0
+        while (c != null && depth < 8) {
+            if (c is java.util.concurrent.CancellationException) return true
+            if (c is java.io.InterruptedIOException && c !is java.net.SocketTimeoutException) return true
+            if (c is java.io.IOException && c.message?.lowercase() in setOf("canceled", "cancelled", "socket closed")) return true
+            c = c.cause
+            depth++
+        }
+        return false
+    }
 
     @Synchronized
     private fun add(level: String, msg: String) {

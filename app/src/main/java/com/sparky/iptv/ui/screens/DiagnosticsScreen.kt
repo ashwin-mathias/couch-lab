@@ -64,7 +64,8 @@ fun DiagnosticsScreen(vm: AppViewModel) {
         {
             val v = runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull()
             buildString {
-                appendLine("Sparky IPTV $v (build ${Updater.installedBuild(ctx)})")
+                // The version name already includes "(build N)".
+                appendLine("Sparky IPTV $v")
                 appendLine("${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})")
                 val rt = Runtime.getRuntime()
                 appendLine("Memory: ${rt.totalMemory() / 1048576} MB used of ${rt.maxMemory() / 1048576} MB")
@@ -78,6 +79,9 @@ fun DiagnosticsScreen(vm: AppViewModel) {
                         else -> "Catch-up: ${archive.size} channels · up to ${archive.maxOf { it.archiveDays }} days"
                     }
                 )
+                val sw = vm.switchTimes.toList()
+                if (sw.isNotEmpty()) appendLine("Channel switch: average %.1f s (last %d)".format(sw.average() / 1000.0, sw.size))
+                vm.catchupTest?.let { appendLine(it) }
                 appendLine("Playlist type: ${vm.prefs.playlist?.type ?: "none"} · live format ${vm.prefs.liveFormat}")
             }
         }
@@ -103,8 +107,9 @@ fun DiagnosticsScreen(vm: AppViewModel) {
                 else T("No Wi-Fi", size = 16, color = C.Dim)
             }
             url?.let { T(it.removePrefix("http://"), size = 15, weight = FontWeight.SemiBold) }
-            T(header().trim(), size = 12, color = C.Dim, maxLines = 8, lineHeight = 1.5f)
+            T(remember(refreshTick, vm.catchupTest, vm.switchTimes.size) { header().trim() }, size = 12, color = C.Dim, maxLines = 10, lineHeight = 1.5f)
             Spacer(Modifier.weight(1f))
+            PillButton(if (vm.catchupTest == "Testing…") "Testing…" else "Test catch-up") { vm.testCatchup() }
             Row(horizontalArrangement = Arrangement.spacedBy(12.u)) {
                 PillButton("Refresh", Modifier.focusRequester(first)) { refreshTick++ }
                 if (crash != null) PillButton("Clear crash") { AppLog.clearCrash(); refreshTick++ }

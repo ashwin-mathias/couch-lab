@@ -5,8 +5,11 @@ import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.sparky.iptv.data.USER_AGENT
 
@@ -18,13 +21,27 @@ object PlayerHolder {
     @OptIn(UnstableApi::class)
     fun get(ctx: Context): ExoPlayer {
         player?.let { return it }
-        val http = DefaultHttpDataSource.Factory()
-            .setUserAgent(USER_AGENT)
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(15_000)
-            .setReadTimeoutMs(20_000)
+        // One OkHttp client keeps the connection to the provider open between channel switches.
+        val client = OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .retryOnConnectionFailure(true)
+            .build()
+        val http = OkHttpDataSource.Factory(client).setUserAgent(USER_AGENT)
+        // Start playing after about 1 s of video (default 2.5 s); 2 s after a stall.
+        val load = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
+                DefaultLoadControl.DEFAULT_MAX_BUFFER_MS,
+                1_000,
+                2_000,
+            )
+            .build()
         val p = ExoPlayer.Builder(ctx.applicationContext)
             .setMediaSourceFactory(DefaultMediaSourceFactory(http))
+            .setLoadControl(load)
             .build()
         p.playWhenReady = true
         player = p

@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.5",
+    "date": "2026-10-29",
+    "title": "Pause live TV, catch-up and faster switching",
+    "notes": [
+      "Pause live TV with OK; on catch-up channels it resumes right where you paused",
+      "Rewind and forward live shows, start a show from the beginning, or go back to live",
+      "TV guide: go back up to 7 days and replay past shows (marked ↺)",
+      "Faster channel switching using a single stream, with timings in Diagnostics",
+      "Clear error messages with the provider's code, e.g. too many connections (509)",
+      "About: a card for Sparky, with ways to buy her a treat",
+      "Fixes: duplicate build number, first-refresh log line, double update download; cancelled loads no longer logged as errors"
+    ]
+  },
+  {
     "version": "2.4",
     "date": "2026-10-28",
     "title": "Subtitle style",

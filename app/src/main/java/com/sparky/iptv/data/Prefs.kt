@@ -43,6 +43,8 @@ class Prefs(ctx: Context) {
                     expires = o.optLong("expires", 0L).takeIf { it > 0 },
                     maxConnections = o.optString("max").ifBlank { null },
                     liveFormat = o.optString("format", "m3u8"),
+                    timezone = o.optString("tz").ifBlank { null },
+                    offsetMin = if (o.has("off")) o.optInt("off") else null,
                 )
             }.getOrNull()
         }
@@ -51,7 +53,10 @@ class Prefs(ctx: Context) {
             sp.edit().putString(
                 "account",
                 JSONObject().put("status", v.status ?: "").put("expires", v.expires ?: 0L)
-                    .put("max", v.maxConnections ?: "").put("format", v.liveFormat).toString()
+                    .put("max", v.maxConnections ?: "").put("format", v.liveFormat)
+                    .put("tz", v.timezone ?: "")
+                    .apply { v.offsetMin?.let { put("off", it) } }
+                    .toString()
             ).apply()
         }
 
@@ -138,6 +143,11 @@ class Prefs(ctx: Context) {
         val arr = org.json.JSONArray(raw)
         List(arr.length()) { arr.getString(it) }
     }.getOrDefault(emptyList())
+
+    /** Which catch-up link format works with this provider ("path" or "php"); null until tested. */
+    var catchupFormat: String?
+        get() = sp.getString("catchup_format", null)
+        set(v) = sp.edit().putString("catchup_format", v).apply()
 
     /** Subtitle look ("size,color,background,edge,position"); see SubStyle. */
     var subStyle: String?

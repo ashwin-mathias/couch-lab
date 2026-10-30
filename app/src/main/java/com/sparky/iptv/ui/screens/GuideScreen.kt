@@ -32,6 +32,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -135,14 +139,40 @@ private fun GuideContent(vm: AppViewModel, onPickGroup: () -> Unit) {
     val group = vm.liveGroup
     val channels = remember(vm.library, vm.favorites, group) { vm.channelsFor(group) }
     val now = rememberNow()
-    val winStart = now - now % HALF_HOUR
+    // Window position in half-hour steps back from the current half hour (0 = now; negative = the past).
+    var slots by remember { mutableIntStateOf(0) }
+    val winStart = now - now % HALF_HOUR + slots * HALF_HOUR
     val winEnd = winStart + WINDOW_MIN * 60_000L
     var focusedCh by remember { mutableStateOf<Channel?>(null) }
     var focusedProg by remember { mutableStateOf<EpgEntry?>(null) }
     val firstFocus = remember { FocusRequester() }
+    val rowFocus = remember { HashMap<String, FocusRequester>() }
     LaunchedEffect(group) {
         delay(150)
         runCatching { firstFocus.requestFocus() }
+    }
+    // After the window moves, put focus back on the same channel's row.
+    var moved by remember { mutableIntStateOf(0) }
+    LaunchedEffect(moved) {
+        if (moved == 0) return@LaunchedEffect
+        delay(120)
+        focusedCh?.let { c -> runCatching { rowFocus[c.id]?.requestFocus() } }
+    }
+    /** ◀ on a row's first show moves 90 min back, on catch-up channels and within their catch-up days. */
+    fun moveBack(ch: Channel): Boolean {
+        if (ch.archiveDays <= 0 || vm.prefs.playlist?.type != "xtream") return false
+        val next = slots - 3
+        val earliest = now - ch.archiveDays * 24 * 3_600_000L - HALF_HOUR
+        if (now - now % HALF_HOUR + next * HALF_HOUR < earliest) return false
+        slots = next
+        moved++
+        return true
+    }
+    fun moveForward(): Boolean {
+        if (slots >= 0) return false
+        slots = (slots + 3).coerceAtMost(0)
+        moved++
+        return true
     }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 48.u, vertical = 28.u), verticalArrangement = Arrangement.spacedBy(18.u)) {
@@ -151,7 +181,7 @@ private fun GuideContent(vm: AppViewModel, onPickGroup: () -> Unit) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.u)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(20.u)) {
                     Label("Guide")
-                    Label(fmtDay(now), color = C.Text2)
+                    Label(fmtDay(if (slots < 0) winStart else now), color = C.Text2)
                 }
                 val ch = focusedCh
                 val p = focusedProg
@@ -160,8 +190,17 @@ private fun GuideContent(vm: AppViewModel, onPickGroup: () -> Unit) {
                     Row(horizontalArrangement = Arrangement.spacedBy(14.u)) {
                         T("${ch.num} · ${ch.display}", size = 14, color = C.Text2)
                         if (p != null) {
-                            T("${fmtShort(p.start)} – ${fmtClock(p.end)}", size = 14, color = C.Dim)
-                            if (now in p.start until p.end) T(fmtLeft(p.end, now), size = 14, color = C.Dim)
+                            when {
+                                p.end <= now -> {
+                                    T("Aired ${fmtShort(p.start)} – ${fmtClock(p.end)}", size = 14, color = C.Dim)
+                                    if (vm.canReplay(ch, p, now)) T("Replay available · OK to watch", size = 14, color = C.Text2)
+                                    else T("Not available to replay", size = 14, color = C.Dim)
+                                }
+                                else -> {
+                                    T("${fmtShort(p.start)} – ${fmtClock(p.end)}", size = 14, color = C.Dim)
+                                    if (now in p.start until p.end) T(fmtLeft(p.end, now), size = 14, color = C.Dim)
+                                }
+                            }
                         }
                     }
                 }
@@ -172,6 +211,17 @@ private fun GuideContent(vm: AppViewModel, onPickGroup: () -> Unit) {
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(14.u)) {
                 Clock()
                 Row(horizontalArrangement = Arrangement.spacedBy(10.u)) {
+                    if (slots < 0) {
+                        FocusItem(
+                            onClick = { slots = 0; moved++ },
+                            container = C.Raised,
+                            shape = RoundedCornerShape(999.u),
+                            modifier = Modifier.height(40.u),
+                        ) { f ->
+                            T("Now", size = 14, weight = FontWeight.SemiBold, color = if (f) C.OnFocus else C.Text,
+                                modifier = Modifier.align(Alignment.Center).padding(horizontal = 18.u))
+                        }
+                    }
                     val favOn = group == GROUP_FAV
                     FocusItem(
                         onClick = { vm.liveGroup = if (favOn) GROUP_ALL else GROUP_FAV },
@@ -233,22 +283,33 @@ private fun GuideContent(vm: AppViewModel, onPickGroup: () -> Unit) {
                             }
                             return@itemsIndexed
                         }
+                        val req = rowFocus.getOrPut(ch.id) { FocusRequester() }
                         GuideRow(
                             vm, ch, now, winStart, winEnd, perMin, chanCol,
-                            onPlay = { vm.playLive(channels, i) },
+                            onPlay = { e ->
+                                when {
+                                    e == null || e.end > now -> vm.playLive(channels, i)
+                                    vm.canReplay(ch, e, now) -> vm.playCatchup(ch, e)
+                                    else -> vm.toast = "This show can't be replayed"
+                                }
+                            },
                             onFocus = { e -> focusedCh = ch; focusedProg = e },
-                            focusRequester = if (i == firstPlayable) firstFocus else null,
+                            focusRequesters = listOfNotNull(req, if (i == firstPlayable) firstFocus else null),
+                            onEdgeLeft = { moveBack(ch) },
+                            onEdgeRight = { moveForward() },
                         )
                     }
                 }
             }
-            // "Now" line
-            val x = chanCol + perMin * ((now - winStart) / 60_000f)
-            Box(Modifier.offset(x = x).padding(top = 26.u).width(2.u).fillMaxHeight().background(C.Accent))
-            Box(
-                Modifier.offset(x = x - 24.u).clip(RoundedCornerShape(6.u)).background(C.Accent).padding(horizontal = 8.u, vertical = 2.u)
-            ) {
-                T(fmtShort(now), size = 11, weight = FontWeight.Bold, color = C.OnFocus)
+            // "Now" line, when now is inside the window.
+            if (now in winStart until winEnd) {
+                val x = chanCol + perMin * ((now - winStart) / 60_000f)
+                Box(Modifier.offset(x = x).padding(top = 26.u).width(2.u).fillMaxHeight().background(C.Accent))
+                Box(
+                    Modifier.offset(x = x - 24.u).clip(RoundedCornerShape(6.u)).background(C.Accent).padding(horizontal = 8.u, vertical = 2.u)
+                ) {
+                    T(fmtShort(now), size = 11, weight = FontWeight.Bold, color = C.OnFocus)
+                }
             }
         }
     }
@@ -263,14 +324,20 @@ private fun GuideRow(
     winEnd: Long,
     perMin: Dp,
     chanCol: Dp,
-    onPlay: () -> Unit,
+    onPlay: (EpgEntry?) -> Unit,
     onFocus: (EpgEntry?) -> Unit,
-    focusRequester: FocusRequester?,
+    focusRequesters: List<FocusRequester>,
+    onEdgeLeft: () -> Boolean,
+    onEdgeRight: () -> Boolean,
 ) {
     LaunchedEffect(ch.id) { vm.ensureEpg(ch) }
+    // Looking back in time: load past shows for catch-up channels.
+    val past = winStart < now - HALF_HOUR
+    LaunchedEffect(ch.id, past) { if (past) vm.ensureFullEpg(ch) }
     val entries = vm.epg[ch.id].orEmpty().filter { it.end > winStart && it.start < winEnd }
     // Channels without guide data get a slimmer row so the guide stays compact.
     val compact = entries.isEmpty() && vm.epg.containsKey(ch.id)
+    fun firstCell(m: Modifier): Modifier = focusRequesters.fold(m) { acc, r -> acc.focusRequester(r) }
     Row(Modifier.height(if (compact) 38.u else 52.u), verticalAlignment = Alignment.CenterVertically) {
         Row(Modifier.width(chanCol), verticalAlignment = Alignment.CenterVertically) {
             T(ch.num.toString(), size = 12, color = C.Dim, modifier = Modifier.width(44.u))
@@ -285,30 +352,45 @@ private fun GuideRow(
                     sub = "",
                     width = perMin * WINDOW_MIN - 4.u,
                     live = true,
-                    height = if (compact) 34.u else 46.u,
-                    onClick = onPlay,
+                    onClick = { onPlay(null) },
                     onFocus = { onFocus(null) },
-                    modifier = if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier,
+                    modifier = firstCell(Modifier).edgeKeys(true, true, onEdgeLeft, onEdgeRight),
+                    height = if (compact) 34.u else 46.u,
                 )
             } else {
                 entries.forEachIndexed { idx, e ->
                     val s = maxOf(e.start, winStart)
                     val en = minOf(e.end, winEnd)
                     val w = (perMin * ((en - s) / 60_000f) - 4.u).coerceAtLeast(24.dp)
+                    val isPast = e.end <= now
+                    val replay = isPast && vm.canReplay(ch, e, now)
                     ProgramCell(
-                        title = e.title.ifBlank { ch.display },
+                        title = (if (replay) "↺  " else "") + e.title.ifBlank { ch.display },
                         sub = "${fmtShort(e.start)} – ${fmtShort(e.end)}",
                         width = w,
                         live = now in e.start until e.end,
-                        onClick = onPlay,
+                        dim = isPast && !replay,
+                        onClick = { onPlay(e) },
                         onFocus = { onFocus(e) },
-                        modifier = if (idx == 0 && focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier,
+                        modifier = (if (idx == 0) firstCell(Modifier) else Modifier)
+                            .edgeKeys(idx == 0, idx == entries.lastIndex, onEdgeLeft, onEdgeRight),
                     )
                 }
             }
         }
     }
 }
+
+/** ◀ on a row's first cell and ▶ on its last cell move the guide window in time. */
+private fun Modifier.edgeKeys(first: Boolean, last: Boolean, onLeft: () -> Boolean, onRight: () -> Boolean): Modifier =
+    if (!first && !last) this else onPreviewKeyEvent { ev ->
+        if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+        when (ev.nativeKeyEvent.keyCode) {
+            android.view.KeyEvent.KEYCODE_DPAD_LEFT -> first && onLeft()
+            android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> last && onRight()
+            else -> false
+        }
+    }
 
 @Composable
 private fun ProgramCell(
@@ -320,6 +402,7 @@ private fun ProgramCell(
     onFocus: () -> Unit,
     modifier: Modifier = Modifier,
     height: Dp = 46.u,
+    dim: Boolean = false,
 ) {
     FocusItem(
         onClick = onClick,
@@ -332,7 +415,7 @@ private fun ProgramCell(
             Modifier.fillMaxSize().padding(horizontal = 12.u),
             verticalArrangement = Arrangement.Center,
         ) {
-            T(title, size = 14, weight = FontWeight.SemiBold, color = if (f) C.OnFocus else C.Text)
+            T(title, size = 14, weight = FontWeight.SemiBold, color = if (f) C.OnFocus else if (dim) C.Dim else C.Text)
             if (sub.isNotEmpty()) T(sub, size = 11, color = if (f) C.OnFocusMuted else C.Dim)
         }
     }

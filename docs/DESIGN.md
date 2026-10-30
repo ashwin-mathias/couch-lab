@@ -143,7 +143,8 @@ Usage:
 | `drawable-nodpi/logo.png` | 256² RGBA | Rounded-square illustration: a smiling golden Labrador-style dog at a wooden desk, with a wall-mounted TV showing a squirrel and a red "BRK ..NEWS!!" banner, on a warm cream background. Used in the nav rail (48, radius 12), Setup (44, radius 11) and Loading (140, radius 32). |
 | `drawable-xhdpi/banner.png` | 320×180 | The Android TV launcher banner: the logo on the left, with "Sparky" (white) and "IPTV" (accent coral) in bold sans on near-black. |
 | `mipmap-*/ic_launcher.png` | 48–192 | The launcher icon (the same art as the logo). |
-| `drawable-nodpi/avatar.png` | 320² | The author's photo/avatar for the About page (96, circle). |
+| `drawable-nodpi/avatar.png` | 320² | The author's avatar (the cartoon dog at a desk) for the About page (64, circle). |
+| `drawable-nodpi/sparky.jpg` | 512² | Photo of Sparky, a yellow Labrador, face centred against a blue sky (2.5). About page, 96 circle, crop. |
 | `res/font/inter_*.otf` | — | Inter 400/500/600/700. |
 
 ## 8. Screen layouts (design px)
@@ -187,6 +188,11 @@ Usage:
     - The title 24 Bold.
     - [start 13, progress bar 4 (track Line2, fill Text), end 13].
     - [Next line 13 Dim, and the hint 13 Dim on the right].
+    - Catch-up channels: "CATCH-UP 7D" 11 Bold Dim (letterSpacing 0.06), 12 after the name.
+    - An error replaces the title, at 20 Bold, up to 2 lines.
+- **Paused / behind live (2.5)**: the info bar is replaced by the shared **control bar** (§8.4) with a heading line (15 SemiBold Text2).
+  - A chip at top-left (32 / 48; `Bg@0.85`, radius 10, padding 14×8) shows "PAUSED" or "BEHIND LIVE" (12 Bold Accent, letterSpacing 0.08), a 10 gap, then the lag 15 SemiBold Text2.
+  - The clock chip stays at top-right.
 - The **track panel**: right side, full height, 380 wide, `Bg@0.94`, padding 24 / 40 / 40 / 40, spacing 6.
   - The title 20 Bold, then the note 12 Dim.
   - The "AUDIO" label (padding top 6, bottom 4), then track rows.
@@ -195,8 +201,9 @@ Usage:
 ### 8.4 Movie/episode player
 - The same black full-screen video.
 - When the bar or panel is visible: the title 20 Bold and subtitle 14 Text2 at top-left (32 / 48, right margin 480), and the clock chip at top-right (hidden while the panel is open).
-- **Control bar**: bottom centre, margins 48 / 48 / 40, radius 18, `Bg@0.92`, padding 28×22, column spacing 16.
-  - **Timeline row**: elapsed 14 SemiBold (84 wide; `Text` when active, `Muted` otherwise), the progress bar (6 high and `Text` fill when active; 4 high and `Muted` fill otherwise; track `Line2`), a 16 gap, then the remaining time 14 Muted (84 wide).
+- **Control bar** (one shared `ControlBar` composable for movies, episodes, recordings and live when behind; 2.5): bottom centre, margins 48 / 48 / 40, radius 18, `Bg@0.92`, padding 28×22, column spacing 16.
+  - Optional heading 15 SemiBold Text2 (live only).
+  - **Timeline row**: the left label 14 SemiBold (96 wide; `Text` when active, `Muted` otherwise), the progress bar (6 high and `Text` fill when active; 4 high and `Muted` fill otherwise; track `Line2`), a 16 gap, then the right label 14 Muted (natural width).
   - **Buttons row**: spacing 10. Pills are radius 10, padding 16×9, text 14 SemiBold. The current pill is `Text` with `OnFocus` text; the others are `Line2@0.6` with `Text`. Then a spacer and the hint 12 Dim.
 - The track panel is the same as live.
 
@@ -209,7 +216,11 @@ Usage:
   - The ruler is 32 high, with labels 13 SemiBold Muted every 30 min. Then a 1 px line and a 4 gap.
   - Rows are 52 high (compact 38): the number 12 Dim (44 wide), the logo 34 (compact 28), a 12 gap, and the name 14 SemiBold.
   - Cells are 46 high (compact 34), radius 8, with 4 gaps; on-air `Raised`, otherwise `Panel`. Each holds the title 14 SemiBold and the times 11 Dim, padding 12. The minimum cell width is 24 dp.
-- **Now line**: 2 px `Accent`, starting 26 from the top. The tag is `Accent`, radius 6, padding 8×2, time 11 Bold `OnFocus`, offset −24.
+- **Now line**: 2 px `Accent`, starting 26 from the top. The tag is `Accent`, radius 6, padding 8×2, time 11 Bold `OnFocus`, offset −24. Only drawn when now is in the window.
+- **Past shows (2.5)**:
+  - Replayable cells start with "↺␣␣".
+  - Non-replayable past cells use `Dim` title text (still `Panel`).
+  - The **Now** pill is first in the header pill row: 40 high, `Raised`, radius 999, "Now" 14 SemiBold, padding 18.
 - **Group picker**: scrim `Bg@0.7`; the panel is 420 wide, `Panel`, padding 20×28. Rows are 46 high.
 
 ### 8.6 Home
@@ -277,10 +288,18 @@ Usage:
 
 ### 8.16 Diagnostics and About
 - **Diagnostics**: padding 64 × 44; columns spaced 48.
-  - The left column is 340 wide: the QR box 220 (radius 16) and the header text 12 Dim (8 lines).
+  - The left column is 340 wide: the QR box 220 (radius 16) and the header text 12 Dim (10 lines).
+  - At the bottom: the **Test catch-up** pill on its own row, then [Refresh, Clear crash].
   - Log lines are 12 px, focusable (focused background `Panel`).
 - **About**: padding 64 × 44; columns spaced 56.
-  - The left column is 380 wide: the avatar 96, the name 26 Bold, and the LinkedIn card (`Panel`, radius 16, padding 18, QR box 132).
+  - The left column is 380 wide, spacing 16:
+    - The ABOUT label.
+    - The author row: avatar 64 circle, a 16 gap, the name 22 Bold and the role 13 Muted (spacing 3).
+    - The **Sparky card** (2.5): `Panel`, radius 16, padding 18, spacing 14.
+      - [Sparky photo 96 circle (crop), a 16 gap, the note 15 Text2, lineHeight 1.45, with "Sparky" Bold `Text`].
+      - "Buy Sparky a treat" 14 SemiBold.
+      - A row of two QR tiles spaced 16. Each tile is 128 square, radius 12, `Text` background, padding 10; the QR uses dark modules on light, margin 0. Under it: the label 13 SemiBold and the sub-label 11 Dim, spaced 6.
+    - A spacer, then Version, Device, Network, and the privacy note.
   - Release cards are `Panel` (focused `Raised`), radius 14, padding 22×18: "Version x" 13 Bold Text2, the date 13 Dim, "LATEST" 11 Bold Accent, the title 18 Bold, and bullets 14 Muted.
 
 ## 9. Phone web pages (setup and diagnostics)

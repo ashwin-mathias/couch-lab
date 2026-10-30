@@ -91,6 +91,29 @@ Tick each box. Note the build number at the top of the run.
 - [ ] J2-6. The style survives an app restart and Clear watch history. Reset to default restores the defaults.
 - [ ] J2-7. Live TV subtitles use the same style.
 
+## J3. Channel switching (2.5)
+- [ ] J3-1. ▲▼ in full-screen live updates the info bar instantly. The picture follows in **under 2 s** on the TCL dongle and the Shield (see "Channel switch: average" in Diagnostics).
+- [ ] J3-2. Pressing ▲ five times quickly loads only the last channel (the log shows one switch, not five).
+- [ ] J3-3. Never more than one stream: with a second device playing on the same account, Sparky shows "Provider says too many connections (…)". It doesn't hammer the provider with format retries.
+
+## J4. Pause, rewind and catch-up (2.5)
+- [ ] J4-0. Diagnostics → Test catch-up reports "Catch-up works (…)". If it fails, record the reason here.
+- [ ] J4-1. OK on live pauses: the picture freezes, the PAUSED chip shows, and the bar shows with Play, Start of show, Go live, Audio & subtitles.
+- [ ] J4-2. On a catch-up channel, resume after 2 minutes continues from the pause moment, not live. The chip shows "BEHIND LIVE 2:0x".
+- [ ] J4-3. ◀ rewinds 10 s per press; holding goes faster; ▶ forward. Forward to within 30 s of now goes live.
+- [ ] J4-4. Start of show plays from the programme's start. Go live returns to live.
+- [ ] J4-5. On a channel without catch-up: pause works, with the hint "Pause only · no rewind". After a long pause, resume goes live with the toast.
+- [ ] J4-6. Back always leaves, from any pause or behind-live state. CH± changes channel and starts it live.
+- [ ] J4-7. Hold OK still toggles the favourite in every state.
+- [ ] J4-8. Guide: ◀ on the first cell of a catch-up channel moves 90 min back, repeatedly, up to 7 days. Replayable cells show ↺; the Now pill returns.
+- [ ] J4-9. OK on a ↺ show plays it from its start in the movie player, with seek, pause and Audio & subtitles. No resume point appears on Movies.
+- [ ] J4-10. A past show outside catch-up shows the toast "This show can't be replayed".
+- [ ] J4-11. The recording's start time is right (the show begins at its start, not hours off). This checks the server time-zone handling.
+
+## J5. About (2.5)
+- [ ] J5-1. LinkedIn is gone. The Sparky card shows her photo, the note with "Sparky" in bold, and the two QR codes, all inside the safe area.
+- [ ] J5-2. Scanning the Venmo code opens Ashwin's Venmo; scanning the Zelle code opens Zelle for Ashwin's email.
+
 ## K. Search and Settings
 - [ ] K1. Typing 2+ letters shows channel, movie and series rows. Region filtering applies; favourites are always included.
 - [ ] K2. Settings rows all work. Playlist info is correct (status, expiry, counts).
@@ -122,3 +145,8 @@ Tick each box. Note the build number at the top of the run.
 | R8 | 2.1 | Duplicate provider IDs crashed lazy lists ("key already used") | Lists use position-prefixed keys `"$index:$id"`; scroll every list fully |
 | R9 | 2.2 | Build broke: Media3 `C` vs theme `C` ambiguity | Clean build passes; `MediaC` alias used |
 | R10 | 2.2 | **VOD controls: after the overlay hid, no remote key brought it back; the gear UI was poor** | J1–J5 |
+| R11 | 2.4 | Diagnostics showed "(build 14) (build 14)" | Diagnostics header shows the build once |
+| R12 | 2.4 | First refresh logged "last update 498100h ago" | Clear data, set up, open Diagnostics: "Daily refresh: first update" |
+| R13 | 2.4 | A second Install press downloaded the update twice | Press Install twice quickly: one "Downloaded update" log line |
+| R14 | 2.4 | Cancelled loads (e.g. a detail page closed early) were logged as errors | Open and quickly close several movie details: no ERROR lines |
+| R15 | 2.4 | Vague "This channel isn't playing right now." with no reason | Play on 2 devices: the message names the code (509) and the fix |

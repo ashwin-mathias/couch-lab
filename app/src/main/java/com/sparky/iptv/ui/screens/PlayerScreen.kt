@@ -21,6 +21,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -39,6 +40,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import com.sparky.iptv.R
 import com.sparky.iptv.player.PlayerHolder
+import com.sparky.iptv.player.PlaybackErrors
 import com.sparky.iptv.player.TrackHelper
 import com.sparky.iptv.player.SubtitleStyleState
 import androidx.compose.foundation.rememberScrollState
@@ -69,9 +71,21 @@ fun PlayerScreen(vm: AppViewModel, req: PlayRequest) {
     }
 }
 
+/** Buttons on the live control bar while paused or behind live. */
+private enum class LiveButton { PLAY, START, LIVE, TRACKS }
+
+/**
+ * Full-screen live TV.
+ *  - At live: ▲▼ change channel, ◀ back to the page you came from, ▶ audio & subtitles,
+ *    OK pause, hold OK favourite.
+ *  - Paused or behind live: a control bar like the movie player. ◀ ▶ rewind / forward (catch-up
+ *    channels), ▼ buttons (Play/Pause, Start of show, Go live, Audio & subtitles), OK play/pause.
+ *    Back always leaves. CH+/CH− still change channel.
+ */
 @Composable
 private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
     val ctx = LocalContext.current
+    val player = remember { PlayerHolder.get(ctx) }
     val channels = req.channels
     var index by remember { mutableIntStateOf(req.index.coerceIn(0, channels.lastIndex)) }
     var previous by remember { mutableIntStateOf(-1) }
@@ -81,30 +95,141 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
     var infoTick by remember { mutableIntStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
     var triedFallback by remember { mutableStateOf(false) }
+    // Pause / catch-up state.
+    var shiftStart by remember { mutableStateOf<Long?>(null) }   // start of the recording being played; null = live
+    var paused by remember { mutableStateOf(false) }             // paused (live or recording)
+    var pausedAt by remember { mutableLongStateOf(0L) }          // wall-clock time of a live pause
+    var resumedLiveAt by remember { mutableLongStateOf(0L) }
+    var pendingOffset by remember { mutableLongStateOf(0L) }     // sub-minute seek once a recording is ready
+    var shiftRetried by remember { mutableStateOf(false) }
+    var barVisible by remember { mutableStateOf(false) }
+    var onButtons by remember { mutableStateOf(false) }
+    var button by remember { mutableIntStateOf(0) }
+    var barTick by remember { mutableIntStateOf(0) }
+    var seekTarget by remember { mutableStateOf<Long?>(null) }
+    var seekTick by remember { mutableIntStateOf(0) }
+    var clockTick by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    // Channel switch timing.
+    var switchStartedAt by remember { mutableLongStateOf(0L) }
+    var firstPlay by remember { mutableStateOf(true) }
+
     val ch = channels[index]
     val now = rememberNow(15_000L)
     val focus = remember { FocusRequester() }
+    val canShift = ch.archiveDays > 0 && ch.directUrl == null
+    val behind = shiftStart != null || paused
 
-    // Back (or ◀) returns to the page you came from. Pages with a preview keep the stream playing there.
+    fun wallNow() = System.currentTimeMillis()
+    /** The moment of the broadcast on screen. */
+    fun watchedTime(): Long = shiftStart?.let { it + player.currentPosition } ?: if (paused) pausedAt else wallNow()
+
     fun leave() {
         val hasPreview = vm.section in setOf(Section.LIVE, Section.FAVORITES, Section.RECENT)
-        if (hasPreview) vm.liveHandoff = true else PlayerHolder.stop()
+        if (hasPreview && !behind) vm.liveHandoff = true else PlayerHolder.stop()
         vm.pop()
     }
+    fun showBar(buttonsRow: Boolean? = null) {
+        if (buttonsRow != null) onButtons = buttonsRow
+        barVisible = true
+        barTick++
+    }
+    fun goLive() {
+        shiftStart = null
+        paused = false
+        seekTarget = null
+        barVisible = false
+        error = null
+        PlayerHolder.play(ctx, ch.url, force = true)
+    }
+    /** Plays the recording from [t] (catch-up channels only). Near "now" it simply goes live. */
+    fun startShift(t: Long) {
+        val n = wallNow()
+        val earliest = n - ch.archiveDays * 24 * 3_600_000L
+        val target = t.coerceAtLeast(earliest)
+        if (!canShift || target >= n - 30_000) { goLive(); return }
+        val start = target - target % 60_000
+        val minutes = ((n - start) / 60_000 + 60).toInt().coerceIn(30, 24 * 60)
+        shiftStart = start
+        paused = false
+        pendingOffset = target - start
+        error = null
+        com.sparky.iptv.data.AppLog.i("Catch-up from ${(n - start) / 60_000} min ago on channel ${ch.num}")
+        PlayerHolder.play(ctx, com.sparky.iptv.data.StreamUrls.catchup(ch.id, start, minutes), force = true)
+    }
+    fun togglePause() {
+        when {
+            shiftStart != null -> {
+                player.playWhenReady = !player.playWhenReady
+                paused = !player.playWhenReady
+            }
+            !paused -> {
+                player.playWhenReady = false
+                paused = true
+                pausedAt = wallNow()
+            }
+            // Resume a live pause: from the recording if it's been a while, else straight on.
+            canShift && wallNow() - pausedAt > 15_000 -> startShift(pausedAt)
+            else -> {
+                paused = false
+                resumedLiveAt = wallNow()
+                player.playWhenReady = true
+            }
+        }
+    }
+    fun seekBy(delta: Long) {
+        if (!canShift) return
+        val base = seekTarget ?: watchedTime()
+        val target = (base + delta).coerceAtLeast(wallNow() - ch.archiveDays * 24 * 3_600_000L)
+        if (target >= wallNow() - 30_000) { goLive(); return }
+        seekTarget = target
+        seekTick++
+    }
+    fun switchTo(i: Int) {
+        if (i == index) return
+        previous = index
+        index = i
+        shiftStart = null
+        paused = false
+        barVisible = false
+        seekTarget = null
+        switchStartedAt = android.os.SystemClock.elapsedRealtime()
+    }
+
+    val currentShow = remember(ch.id, clockTick, shiftStart, paused) {
+        val w = watchedTime()
+        vm.epg[ch.id].orEmpty().firstOrNull { w >= it.start && w < it.end }
+    }
+    val buttons = remember(canShift, currentShow != null) {
+        LiveButton.entries.filter { it != LiveButton.START || (canShift && currentShow != null) }
+    }
+    LaunchedEffect(buttons) { button = button.coerceIn(0, buttons.lastIndex) }
+    fun press(b: LiveButton) {
+        when (b) {
+            LiveButton.PLAY -> togglePause()
+            LiveButton.START -> currentShow?.let { startShift(it.start) }
+            LiveButton.LIVE -> goLive()
+            LiveButton.TRACKS -> panelOpen = true
+        }
+    }
+
+    // Back always leaves; it closes the audio & subtitles panel first.
     BackHandler { leave() }
-    // Registered after the one above, so Back closes the audio & subtitles panel first.
     BackHandler(enabled = panelOpen) { panelOpen = false }
 
+    // The info bar updates at once; the stream starts once the remote has settled (300 ms),
+    // so scrolling past channels opens no streams.
     LaunchedEffect(ch.id) {
         error = null
         triedFallback = false
-        PlayerHolder.play(ctx, ch.url)
-        vm.prefs.lastChannel = ch.id
+        shiftRetried = false
         vm.ensureEpg(ch)
         showInfo = true
         infoTick++
+        if (!firstPlay) delay(300)
+        firstPlay = false
+        PlayerHolder.play(ctx, ch.url)
+        vm.prefs.lastChannel = ch.id
     }
-    // Counts as "recently watched" after 10 seconds on a channel.
     LaunchedEffect(ch.id) {
         delay(10_000)
         vm.addRecent("live", ch.id)
@@ -113,12 +238,55 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
         delay(5000)
         showInfo = false
     }
+    // The control bar hides after 5 s while playing; it stays while paused.
+    LaunchedEffect(barTick, barVisible, panelOpen, paused) {
+        if (barVisible && !panelOpen && !paused) {
+            delay(5000)
+            barVisible = false
+        }
+    }
+    // A run of ◀ / ▶ presses becomes one jump.
+    LaunchedEffect(seekTick) {
+        if (seekTick == 0) return@LaunchedEffect
+        delay(600)
+        val t = seekTarget ?: return@LaunchedEffect
+        val s = shiftStart
+        if (s != null && t >= s && player.isCurrentMediaItemSeekable) player.seekTo(t - s) else startShift(t)
+        seekTarget = null
+    }
+    // Keep the times on screen current while behind live.
+    LaunchedEffect(behind) {
+        while (behind) {
+            clockTick = wallNow()
+            delay(500)
+        }
+    }
     DisposableEffect(ch.id) {
-        val player = PlayerHolder.get(ctx)
         val l = object : Player.Listener {
             override fun onPlayerError(e: PlaybackException) {
-                // Some providers only serve one of HLS / MPEG-TS; try the other once.
-                if (!triedFallback) {
+                val detail = PlaybackErrors.logDetail(e)
+                if (shiftStart != null) {
+                    // A recording stopped: try once more from where we were, then go live.
+                    if (!shiftRetried) {
+                        shiftRetried = true
+                        com.sparky.iptv.data.AppLog.w("Catch-up stopped on channel ${ch.num} ($detail); retrying")
+                        startShift(watchedTime())
+                    } else {
+                        com.sparky.iptv.data.AppLog.e("Catch-up failed on channel ${ch.num}: $detail")
+                        goLive()
+                        vm.toast = PlaybackErrors.message(e, "recording")
+                    }
+                    return
+                }
+                // Resuming a long live pause on a channel without catch-up.
+                if (wallNow() - resumedLiveAt < 10_000 || e.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
+                    resumedLiveAt = 0L
+                    goLive()
+                    vm.toast = "This channel can't pause that long — back to live"
+                    return
+                }
+                // Some providers only serve one of HLS / MPEG-TS; try the other once (not for login or connection limits).
+                if (!triedFallback && !PlaybackErrors.isAccountProblem(e)) {
                     triedFallback = true
                     val alt = when {
                         ch.url.endsWith(".m3u8") -> ch.url.removeSuffix(".m3u8") + ".ts"
@@ -130,12 +298,27 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
                         return
                     }
                 }
-                com.sparky.iptv.data.AppLog.e("Live playback failed on channel ${ch.num} ${ch.name}: ${e.errorCodeName}")
-                error = "This channel isn't playing right now."
+                com.sparky.iptv.data.AppLog.e("Live playback failed on channel ${ch.num} ${ch.name}: $detail")
+                error = PlaybackErrors.message(e, "channel")
                 showInfo = true
+                infoTick++
             }
             override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_READY) error = null
+                if (state == Player.STATE_READY) {
+                    error = null
+                    if (shiftStart != null && pendingOffset > 1000 && player.isCurrentMediaItemSeekable) {
+                        player.seekTo(pendingOffset)
+                    }
+                    pendingOffset = 0L
+                }
+                // The recording ran out (it was requested up to about now): carry on live.
+                if (state == Player.STATE_ENDED && shiftStart != null) startShift(watchedTime())
+            }
+            override fun onRenderedFirstFrame() {
+                if (switchStartedAt > 0) {
+                    vm.recordSwitch(android.os.SystemClock.elapsedRealtime() - switchStartedAt)
+                    switchStartedAt = 0L
+                }
             }
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
                 // Re-apply the audio / subtitle choice remembered for this channel.
@@ -154,12 +337,6 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
         }
     }
 
-    fun switchTo(i: Int) {
-        if (i == index) return
-        previous = index
-        index = i
-    }
-
     Box(
         Modifier
             .fillMaxSize()
@@ -168,31 +345,67 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
             .focusable()
             .onPreviewKeyEvent { ev ->
                 if (panelOpen) return@onPreviewKeyEvent false
-                val code = ev.nativeKeyEvent.keyCode
+                val ne = ev.nativeKeyEvent
+                val code = ne.keyCode
+                val step = when {
+                    ne.repeatCount >= 20 -> 60_000L
+                    ne.repeatCount >= 6 -> 30_000L
+                    else -> 10_000L
+                }
                 when (ev.type) {
                     KeyEventType.KeyDown -> when (code) {
-                        AKey.KEYCODE_DPAD_UP, AKey.KEYCODE_CHANNEL_UP -> { switchTo((index + 1) % channels.size); true }
-                        AKey.KEYCODE_DPAD_DOWN, AKey.KEYCODE_CHANNEL_DOWN -> { switchTo((index - 1 + channels.size) % channels.size); true }
-                        AKey.KEYCODE_DPAD_LEFT -> { leave(); true }
+                        AKey.KEYCODE_CHANNEL_UP -> { switchTo((index + 1) % channels.size); true }
+                        AKey.KEYCODE_CHANNEL_DOWN -> { switchTo((index - 1 + channels.size) % channels.size); true }
                         AKey.KEYCODE_LAST_CHANNEL -> {
                             if (previous in channels.indices) switchTo(previous)
                             true
                         }
-                        AKey.KEYCODE_DPAD_RIGHT, AKey.KEYCODE_MENU, AKey.KEYCODE_CAPTIONS -> {
-                            // Opens the audio & subtitles panel, with the channel info.
+                        AKey.KEYCODE_DPAD_UP -> {
+                            if (behind) showBar(if (barVisible) false else onButtons) else switchTo((index + 1) % channels.size)
+                            true
+                        }
+                        AKey.KEYCODE_DPAD_DOWN -> {
+                            if (behind) showBar(if (barVisible) true else onButtons) else switchTo((index - 1 + channels.size) % channels.size)
+                            true
+                        }
+                        AKey.KEYCODE_DPAD_LEFT -> {
+                            when {
+                                !behind -> leave()
+                                barVisible && onButtons -> { if (ne.repeatCount == 0) button = (button - 1).coerceAtLeast(0); showBar() }
+                                else -> { seekBy(-step); showBar(false) }
+                            }
+                            true
+                        }
+                        AKey.KEYCODE_DPAD_RIGHT -> {
+                            when {
+                                !behind -> { panelOpen = true; showInfo = true; infoTick++ }
+                                barVisible && onButtons -> { if (ne.repeatCount == 0) button = (button + 1).coerceAtMost(buttons.lastIndex); showBar() }
+                                else -> { seekBy(step); showBar(false) }
+                            }
+                            true
+                        }
+                        AKey.KEYCODE_MENU, AKey.KEYCODE_CAPTIONS -> {
                             panelOpen = true
                             showInfo = true
                             infoTick++
                             true
                         }
+                        AKey.KEYCODE_MEDIA_PLAY_PAUSE -> { togglePause(); showBar(); true }
+                        AKey.KEYCODE_MEDIA_PAUSE -> { if (!paused) togglePause(); showBar(); true }
+                        AKey.KEYCODE_MEDIA_PLAY -> { if (paused) togglePause(); showBar(); true }
+                        AKey.KEYCODE_MEDIA_REWIND -> { seekBy(-step); showBar(false); true }
+                        AKey.KEYCODE_MEDIA_FAST_FORWARD -> { if (behind) seekBy(step); showBar(false); true }
                         AKey.KEYCODE_DPAD_CENTER, AKey.KEYCODE_ENTER, AKey.KEYCODE_NUMPAD_ENTER -> true
                         else -> false
                     }
                     KeyEventType.KeyUp -> when (code) {
                         AKey.KEYCODE_DPAD_CENTER, AKey.KEYCODE_ENTER, AKey.KEYCODE_NUMPAD_ENTER -> {
-                            val held = ev.nativeKeyEvent.eventTime - ev.nativeKeyEvent.downTime
-                            // Hold OK toggles the favorite; a short press does nothing.
-                            if (held > 600) vm.toggleFavorite(ch.favKey, ch.display)
+                            val held = ne.eventTime - ne.downTime
+                            when {
+                                held > 600 -> vm.toggleFavorite(ch.favKey, ch.display)   // hold OK = favourite
+                                behind && barVisible && onButtons -> { buttons.getOrNull(button)?.let { press(it) }; showBar() }
+                                else -> { togglePause(); showBar(false) }                // OK = pause / play
+                            }
                             true
                         }
                         else -> false
@@ -203,13 +416,59 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
     ) {
         PlayerSurface(Modifier.fillMaxSize())
 
-        if (showInfo) {
+        if (showInfo || behind) {
             Box(
                 Modifier.align(Alignment.TopEnd).padding(top = 32.u, end = 48.u)
                     .clip(RoundedCornerShape(10.u)).background(C.Bg.copy(alpha = 0.85f))
                     .padding(horizontal = 14.u, vertical = 8.u)
             ) { Clock() }
+        }
 
+        if (behind) {
+            // Small reminder at the top left while not at live.
+            val t0 = clockTick   // read so this redraws every half second
+            val lag = (t0.coerceAtLeast(wallNow()) - (seekTarget ?: watchedTime())).coerceAtLeast(0L)
+            Row(
+                Modifier.align(Alignment.TopStart).padding(top = 32.u, start = 48.u)
+                    .clip(RoundedCornerShape(10.u)).background(C.Bg.copy(alpha = 0.85f))
+                    .padding(horizontal = 14.u, vertical = 8.u),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                T(if (paused) "PAUSED" else "BEHIND LIVE", size = 12, weight = FontWeight.Bold, color = C.Accent, letterSpacing = 0.08f)
+                Spacer(Modifier.width(10.u))
+                T(fmtTime(lag), size = 15, weight = FontWeight.SemiBold, color = C.Text2)
+            }
+        }
+
+        if (behind && barVisible && !panelOpen) {
+            val t0 = clockTick
+            val w = seekTarget ?: watchedTime()
+            val lag = (t0.coerceAtLeast(wallNow()) - w).coerceAtLeast(0L)
+            val show = vm.epg[ch.id].orEmpty().firstOrNull { w >= it.start && w < it.end }
+            val frac = show?.let { (w - it.start).toFloat() / (it.end - it.start).coerceAtLeast(1) } ?: 1f
+            ControlBar(
+                heading = "${ch.num}  ${ch.display}" + (show?.let { "   ·   ${it.title}" } ?: ""),
+                left = fmtClock(w),
+                right = "−" + fmtTime(lag) + " behind live",
+                fraction = frac,
+                timelineActive = !onButtons,
+                buttons = buttons.map {
+                    when (it) {
+                        LiveButton.PLAY -> if (paused) "Play" else "Pause"
+                        LiveButton.START -> "Start of show"
+                        LiveButton.LIVE -> "Go live"
+                        LiveButton.TRACKS -> "Audio & subtitles"
+                    }
+                },
+                selected = if (onButtons) button else -1,
+                hint = when {
+                    onButtons -> "◀ ▶ Choose   ·   OK Select   ·   ▲ Timeline"
+                    canShift -> "◀ ▶ Rewind / forward   ·   OK Play / pause   ·   ▼ Buttons"
+                    else -> "Pause only · no rewind   ·   OK Play / pause   ·   ▼ Buttons"
+                },
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        } else if (showInfo && !behind) {
             val (cur, next) = vm.nowNext(ch.id, now)
             val fav = ch.favKey in vm.favorites
             Row(
@@ -233,10 +492,14 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
                             Spacer(Modifier.width(10.u))
                             Icon(R.drawable.ic_star, tint = C.Text, size = 16.u)
                         }
+                        if (canShift) {
+                            Spacer(Modifier.width(12.u))
+                            T("CATCH-UP ${ch.archiveDays}D", size = 11, weight = FontWeight.Bold, color = C.Dim, letterSpacing = 0.06f)
+                        }
                         Spacer(Modifier.weight(1f))
                         T("${index + 1} of ${channels.size}", size = 13, color = C.Dim)
                     }
-                    T(error ?: cur?.title ?: ch.display, size = 24, weight = FontWeight.Bold)
+                    T(error ?: cur?.title ?: ch.display, size = if (error != null) 20 else 24, weight = FontWeight.Bold, maxLines = 2)
                     if (cur != null && error == null) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             T(fmtShort(cur.start), size = 13, color = C.Muted)
@@ -249,7 +512,7 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
                     }
                     Row {
                         T(next?.let { "Next · ${fmtClock(it.start)}  ${it.title}" } ?: "", size = 13, color = C.Dim, modifier = Modifier.weight(1f))
-                        T("▲▼ Change channel   ·   ◀ Back   ·   ▶ Audio & subtitles   ·   Hold OK ♥", size = 13, color = C.Dim)
+                        T("▲▼ Channel   ·   OK Pause   ·   ◀ Back   ·   ▶ Audio & subtitles   ·   Hold OK ♥", size = 13, color = C.Dim)
                     }
                 }
             }
@@ -422,6 +685,7 @@ private fun VodPlayer(vm: AppViewModel, req: PlayRequest.Vod) {
     LaunchedEffect(buttons) { button = button.coerceIn(0, buttons.lastIndex) }
 
     fun save() {
+        if (!item.saveProgress) return
         val pos = PlayerHolder.currentPosition()
         val dur = PlayerHolder.duration()
         if (dur > 0) vm.saveProgress(item.key, pos, dur)
@@ -510,7 +774,7 @@ private fun VodPlayer(vm: AppViewModel, req: PlayRequest.Vod) {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) duration = PlayerHolder.duration()
                 if (state == Player.STATE_ENDED) {
-                    vm.saveProgress(item.key, PlayerHolder.duration(), PlayerHolder.duration())
+                    if (item.saveProgress) vm.saveProgress(item.key, PlayerHolder.duration(), PlayerHolder.duration())
                     if (idx < req.items.lastIndex) idx++ else {
                         PlayerHolder.stop()
                         vm.pop()
@@ -521,8 +785,8 @@ private fun VodPlayer(vm: AppViewModel, req: PlayRequest.Vod) {
                 playing = player.playWhenReady
             }
             override fun onPlayerError(e: PlaybackException) {
-                com.sparky.iptv.data.AppLog.e("Playback failed for ${item.title}: ${e.errorCodeName}")
-                error = "This title couldn't be played. (${e.errorCodeName})"
+                com.sparky.iptv.data.AppLog.e("Playback failed for ${item.title}: ${PlaybackErrors.logDetail(e)}")
+                error = PlaybackErrors.message(e, if (item.saveProgress) "title" else "recording")
                 barVisible = true
             }
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
@@ -608,52 +872,18 @@ private fun VodPlayer(vm: AppViewModel, req: PlayRequest.Vod) {
         }
 
         if (barVisible && !panelOpen) {
-            Column(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(start = 48.u, end = 48.u, bottom = 40.u)
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.u))
-                    .background(C.Bg.copy(alpha = 0.92f))
-                    .padding(horizontal = 28.u, vertical = 22.u),
-                verticalArrangement = Arrangement.spacedBy(16.u),
-            ) {
-                // Timeline row. Highlighted when ◀ / ▶ seek.
-                val timelineActive = !onButtons
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    T(fmtTime(position), size = 14, weight = FontWeight.SemiBold, color = if (timelineActive) C.Text else C.Muted, modifier = Modifier.width(84.u))
-                    val frac = if (duration > 0) position.toFloat() / duration else 0f
-                    ProgressBar(
-                        frac,
-                        track = C.Line2,
-                        fill = if (timelineActive) C.Text else C.Muted,
-                        height = if (timelineActive) 6.u else 4.u,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Spacer(Modifier.width(16.u))
-                    T(if (duration > 0) "−" + fmtTime(duration - position) else "", size = 14, color = C.Muted, modifier = Modifier.width(84.u))
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.u)) {
-                    buttons.forEachIndexed { i, b ->
-                        val focused = onButtons && i == button
-                        val label = if (b == VodButton.PLAY) (if (playing) "Pause" else "Play") else b.label
-                        Box(
-                            Modifier
-                                .clip(RoundedCornerShape(10.u))
-                                .background(if (focused) C.Text else C.Line2.copy(alpha = 0.6f))
-                                .padding(horizontal = 16.u, vertical = 9.u),
-                        ) {
-                            T(label, size = 14, weight = FontWeight.SemiBold, color = if (focused) C.OnFocus else C.Text)
-                        }
-                    }
-                    Spacer(Modifier.weight(1f))
-                    T(
-                        if (onButtons) "◀ ▶ Choose   ·   OK Select   ·   ▲ Timeline"
-                        else "◀ ▶ 10 s (hold = faster)   ·   OK Play / pause   ·   ▼ Buttons",
-                        size = 12, color = C.Dim,
-                    )
-                }
-            }
+            ControlBar(
+                heading = null,
+                left = fmtTime(position),
+                right = if (duration > 0) "−" + fmtTime(duration - position) else "",
+                fraction = if (duration > 0) position.toFloat() / duration else 0f,
+                timelineActive = !onButtons,
+                buttons = buttons.map { b -> if (b == VodButton.PLAY) (if (playing) "Pause" else "Play") else b.label },
+                selected = if (onButtons) button else -1,
+                hint = if (onButtons) "◀ ▶ Choose   ·   OK Select   ·   ▲ Timeline"
+                    else "◀ ▶ 10 s (hold = faster)   ·   OK Play / pause   ·   ▼ Buttons",
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
         }
 
         if (panelOpen) {
@@ -679,6 +909,63 @@ private fun VodPlayer(vm: AppViewModel, req: PlayRequest.Vod) {
                     T("Press Back to return.", size = 14, color = C.Muted)
                 }
             }
+        }
+    }
+}
+
+/**
+ * Bottom control card shared by the movie player and live TV when paused or behind live:
+ * an optional heading, a timeline row and a row of buttons. Focus is virtual: [selected] is the
+ * highlighted button (-1 = the timeline row is active).
+ */
+@Composable
+private fun ControlBar(
+    heading: String?,
+    left: String,
+    right: String,
+    fraction: Float,
+    timelineActive: Boolean,
+    buttons: List<String>,
+    selected: Int,
+    hint: String,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier
+            .padding(start = 48.u, end = 48.u, bottom = 40.u)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.u))
+            .background(C.Bg.copy(alpha = 0.92f))
+            .padding(horizontal = 28.u, vertical = 22.u),
+        verticalArrangement = Arrangement.spacedBy(16.u),
+    ) {
+        if (heading != null) T(heading, size = 15, weight = FontWeight.SemiBold, color = C.Text2)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            T(left, size = 14, weight = FontWeight.SemiBold, color = if (timelineActive) C.Text else C.Muted, modifier = Modifier.width(96.u))
+            ProgressBar(
+                fraction,
+                track = C.Line2,
+                fill = if (timelineActive) C.Text else C.Muted,
+                height = if (timelineActive) 6.u else 4.u,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(16.u))
+            T(right, size = 14, color = C.Muted)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.u)) {
+            buttons.forEachIndexed { i, label ->
+                val focused = i == selected
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(10.u))
+                        .background(if (focused) C.Text else C.Line2.copy(alpha = 0.6f))
+                        .padding(horizontal = 16.u, vertical = 9.u),
+                ) {
+                    T(label, size = 14, weight = FontWeight.SemiBold, color = if (focused) C.OnFocus else C.Text)
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            T(hint, size = 12, color = C.Dim)
         }
     }
 }

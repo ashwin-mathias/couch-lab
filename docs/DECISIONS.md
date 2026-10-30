@@ -8,6 +8,14 @@ Why the app is the way it is. Read this before changing behaviour, so settled qu
 
 | Version | Decision | Reason |
 |---|---|---|
+| 2.5 | **Faster channel switching with one stream only**: debounce 300 ms, start after about 1 s of buffer, kept-open connection, timing in Diagnostics | Plan allows **1 connection**; no bandwidth wasted |
+| 2.5 | **Never preload neighbouring channels** | Would need a 2nd connection (plan has 1) and doubles data |
+| 2.5 | **Short OK = pause** on live TV (reverses 2.1's "short OK does nothing"); hold OK stays favourite | The Chromecast remote has no play/pause key |
+| 2.5 | Paused or behind live: ◀/▶ rewind and forward, ▲/▼ work the bar, and **Back always leaves**; at live, ◀ still goes back | Agreed with Ashwin |
+| 2.5 | Catch-up: pause/resume from the recording, Start of show, Go live, and **past shows in the Guide** all in 2.5 | Provider has 2,347 catch-up channels × 7 days |
+| 2.5 | **Failover moves to 2.6** | Keep 2.5 focused |
+| 2.5 | About: LinkedIn removed; **Sparky card** with her photo, the note, and Venmo/Zelle "Buy Sparky a treat" QR codes, regenerated cleanly from the decoded links | Prettier; no account digits or face photo; Ashwin OK'd them being public |
+| 2.5 | **Show the provider's actual error code** with a plain message, and **don't log cancelled loads as errors** | Make problems clear and the log only real |
 | 2.4 | **Subtitle style** setting: size, text colour, background, edge, position. Default: Medium, white, drop shadow, semi-transparent box (picked from six samples on a real frame) | The stock solid black box was heavy; style 3 reads well on bright scenes with the picture showing through |
 | 2.4 | The style is one global setting, reachable from Settings and from the player panel, and isn't cleared with watch history | Appearance, not history; adjust while watching |
 | 2.3 | Movies/episodes: **◀ = back 10 s, ▶ = forward 10 s**, accelerating when held; OK = play/pause; ▼ = buttons | TV-standard behaviour; replaces the stock controls that lost focus |
@@ -44,6 +52,9 @@ Why the app is the way it is. Read this before changing behaviour, so settled qu
 10. **A section that fails must not fail the whole load.** Keep last time's copy.
 11. **Show progress honestly**: MB downloaded, item counts, a separate "Preparing" step, and an elapsed timer.
 12. **CI errors are invisible without annotations.** Keep the `::error::` step in the workflow.
+13. **Catch-up start times are in the server's local time,** not UTC or the TV's zone. Measure the offset from `server_info` at login.
+14. **Don't retry another stream format for login or connection-limit errors** (401/403/429/458/509). It can't help, and it uses the one allowed connection again.
+15. **Version names already contain the build.** Don't append it again (the 2.4 Diagnostics bug).
 
 ## Known limitations (accepted)
 - The EPG comes only from `get_short_epg` (12 entries per channel, fetched lazily). There's no XMLTV.

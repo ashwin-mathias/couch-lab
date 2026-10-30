@@ -28,6 +28,39 @@ object StreamUrls {
     }
 
     fun live(id: String) = "$base/live/$user/$pass/$id.$liveFormat"
+
+    // ---- catch-up ----
+    @Volatile private var offsetMin: Int? = null
+    @Volatile private var timezone: String? = null
+    /** "path" ({base}/timeshift/…) or "php" ({base}/streaming/timeshift.php?…). */
+    @Volatile var catchupFormat = "path"
+
+    fun setServerTime(acct: AccountInfo?) {
+        offsetMin = acct?.offsetMin
+        timezone = acct?.timezone
+    }
+
+    /** The server's offset from UTC at [ms]: measured offset, else its time zone name, else this TV's zone. */
+    fun serverOffsetMs(ms: Long): Long {
+        offsetMin?.let { return it * 60_000L }
+        val tz = timezone?.let { java.util.TimeZone.getTimeZone(it) }?.takeIf { it.id != "GMT" || timezone == "GMT" }
+            ?: java.util.TimeZone.getDefault()
+        return tz.getOffset(ms).toLong()
+    }
+
+    /** Start time in the server's local time, "yyyy-MM-dd:HH-mm" (minute precision). */
+    fun serverStamp(ms: Long): String {
+        val f = java.text.SimpleDateFormat("yyyy-MM-dd:HH-mm", java.util.Locale.US)
+        f.timeZone = java.util.TimeZone.getTimeZone("UTC")
+        return f.format(java.util.Date(ms + serverOffsetMs(ms)))
+    }
+
+    /** A recording of a channel from [startMs] (rounded down to the minute) for [minutes]. */
+    fun catchup(id: String, startMs: Long, minutes: Int, fmt: String = catchupFormat): String {
+        val stamp = serverStamp(startMs)
+        return if (fmt == "php") "$base/streaming/timeshift.php?username=$user&password=$pass&stream=$id&start=$stamp&duration=$minutes"
+        else "$base/timeshift/$user/$pass/$minutes/$stamp/$id.ts"
+    }
     fun movie(id: String, ext: String) = "$base/movie/$user/$pass/$id.$ext"
 }
 
@@ -113,6 +146,8 @@ data class EpgEntry(
     val description: String,
     val start: Long,   // epoch millis
     val end: Long,
+    /** The provider keeps a recording of this show (catch-up). Only known from the full listing. */
+    val archive: Boolean = false,
 )
 
 data class AccountInfo(
@@ -120,6 +155,9 @@ data class AccountInfo(
     val expires: Long?,       // epoch millis
     val maxConnections: String?,
     val liveFormat: String,
+    /** The server's time zone name and its offset from UTC, used to build catch-up links. */
+    val timezone: String? = null,
+    val offsetMin: Int? = null,
 )
 
 class Library(

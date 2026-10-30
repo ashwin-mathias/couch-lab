@@ -1,6 +1,6 @@
 # Sparky IPTV — Product specification
 
-Version described: **2.4** (October 2026). This file says **what the app does**. How it looks is in [DESIGN.md](DESIGN.md), how it's built in [ARCHITECTURE.md](ARCHITECTURE.md), and how to prove it works in [ACCEPTANCE.md](ACCEPTANCE.md).
+Version described: **2.5** (October 2026). This file says **what the app does**. How it looks is in [DESIGN.md](DESIGN.md), how it's built in [ARCHITECTURE.md](ARCHITECTURE.md), and how to prove it works in [ACCEPTANCE.md](ACCEPTANCE.md).
 
 Words used: in quoted on-screen text, `␣` marks a space that must be kept (hint lines use three spaces around each `·`; meta lines join with `   ·   `). **must** = required; **should** = strong default. "OK" = the remote's centre button. ◀ ▶ ▲ ▼ = D-pad. "Hold OK" = press longer than 600 ms.
 
@@ -131,21 +131,43 @@ Three columns: **Groups** (270) | **Channels** (470) | **Preview pane** (the res
 ### 7.6 Full-screen live player
 | Key | Action |
 |---|---|
+At live (the normal case):
+
+| Key | Action |
+|---|---|
 | ▲ / CH+ | Next channel (wraps) |
 | ▼ / CH− | Previous channel (wraps) |
 | LAST_CHANNEL | Jump to the previous channel |
 | ◀ or Back | Return to the page you came from (Live, Favorites or Recent keep the preview playing) |
 | ▶, MENU, CAPTIONS | Open the Audio & subtitles panel |
-| OK (short) | Nothing |
+| OK (short), PLAY_PAUSE, PAUSE | **Pause** (2.5; before 2.5 a short OK did nothing) |
+| REWIND | Rewind into the recording (catch-up channels) |
+| Hold OK | Toggle favourite |
+
+Paused or behind live (§7.7):
+
+| Key | Action |
+|---|---|
+| OK (short), PLAY_PAUSE | Play / pause (on the buttons row: press the button) |
+| ◀ / ▶ | Rewind / forward 10 s on catch-up channels; holding speeds up (30 s after 6 repeats, 60 s after 20). Moving forward to within 30 s of now goes live. On the buttons row: move between buttons |
+| ▼ / ▲ | Show the bar; move between the timeline and the buttons rows (they do **not** change channel here) |
+| CH+ / CH− / LAST_CHANNEL | Change channel (drops the recording; the new channel starts live) |
+| MENU, CAPTIONS | Audio & subtitles |
+| Back | **Always leaves** (after closing the panel) |
 | Hold OK | Toggle favourite |
 
 - The info bar appears for 5 s on start and on channel change:
   - Logo, number, name, ♥, "N of M".
   - The programme title (24 Bold) with start and end times and a progress bar.
-  - "Next · time title" and the hint "▲▼ Change channel␣␣␣·␣␣␣◀ Back␣␣␣·␣␣␣▶ Audio & subtitles␣␣␣·␣␣␣Hold OK ♥".
+  - On catch-up channels, a small "CATCH-UP 7D" tag after the name.
+  - "Next · time title" and the hint "▲▼ Channel␣␣␣·␣␣␣OK Pause␣␣␣·␣␣␣◀ Back␣␣␣·␣␣␣▶ Audio & subtitles␣␣␣·␣␣␣Hold OK ♥".
   - The clock, top right.
 - A channel counts as **recently watched after 10 s**. The last channel is remembered.
-- **Playback fallback**: if a stream fails, try once with the other extension (`.m3u8` ↔ `.ts`). If that fails too, show "This channel isn't playing right now." in the info bar.
+- **Channel switching (2.5)**: one stream at a time, always. The account allows **1 connection**, so neighbouring channels are never preloaded.
+  - The info bar updates the moment ▲/▼ is pressed. The stream starts only once no channel key has been pressed for **300 ms**, so scrolling past channels opens no streams.
+  - The player starts after about 1 s of buffered video (2 s after a stall), over one kept-open connection.
+  - Each switch's time, from key press to first picture, is logged, and Diagnostics shows the average of the last 10. The target is under 2 s.
+- **Playback fallback**: if a stream fails, try once with the other extension (`.m3u8` ↔ `.ts`). Skip this for login or connection-limit errors (HTTP 401, 403, 429, 458, 509), where it can't help. If it still fails, show the clear error message (§7.8) in the info bar.
 - **Audio & subtitles panel** (right side, 380 wide):
   - Audio tracks are listed if there is more than one. With one track: "English · Stereo (only track)".
   - Subtitles: "Off", then the tracks. With none: "This channel has no subtitles."
@@ -153,6 +175,42 @@ Three columns: **Groups** (270) | **Channels** (470) | **Preview pane** (the res
   - The choice is saved **per channel** by language and re-applied whenever that channel's tracks load.
   - Only the **200 most recently changed channels** are kept.
   - The last row is **Subtitle style…** with the current style summary below it. It opens the style options inside the same panel (§14.1); Back returns to the track list.
+
+### 7.7 Pause, rewind and catch-up (2.5)
+- The provider keeps recordings of **2,347 channels for up to 7 days** (Diagnostics, Oct 2026). A channel offers catch-up when its `tv_archive` is 1; `archiveDays` is `tv_archive_duration`. M3U channels never do.
+- **Pause** (OK): the picture freezes, a "PAUSED 0:42" chip shows at top left, and the **control bar** appears (§12.2 style).
+  - The bar's heading is "number␣␣channel␣␣␣·␣␣␣programme".
+  - The timeline shows the clock time on screen (left), the progress through the current programme, and "−12:34 behind live" (right).
+  - Buttons: **Play/Pause**, **Start of show** (catch-up channels, when the programme is known), **Go live**, **Audio & subtitles**.
+  - The bar stays while paused and hides after 5 s while playing. The chip changes to "BEHIND LIVE 12:34" and stays visible.
+- **Resume**:
+  - On a catch-up channel paused for more than 15 s, playback continues from the recording at the moment of the pause.
+  - Otherwise playback simply continues. On a channel without catch-up, if the stream has moved on: go live with the toast "This channel can't pause that long — back to live".
+- **Rewind / forward** (catch-up channels): a quick run of presses adds up and becomes one jump 0.6 s after the last press. It seeks inside the recording if possible, otherwise it re-opens the recording at the target minute. It can't go back past the channel's catch-up days. Moving to within 30 s of now goes live.
+- **Start of show** plays the recording from the current programme's start time. **Go live** returns to the live stream.
+- Channels without catch-up show the hint "Pause only · no rewind␣␣␣·␣␣␣OK Play / pause␣␣␣·␣␣␣▼ Buttons" and ◀/▶ do nothing.
+- If a recording fails, retry once from the same moment. If it fails again, go live with the clear error as a toast. When a recording reaches its end, request the next part (or go live).
+- Changing channel or leaving drops the recording. Recordings don't create resume points or history entries.
+- **Recording link**: `{server}/timeshift/{user}/{pass}/{minutes}/{YYYY-MM-DD:HH-MM}/{stream_id}.ts`, or `{server}/streaming/timeshift.php?username=…&password=…&stream=…&start=…&duration=…` if Diagnostics' test found that format works.
+  - The start time is in the **server's local time**: the offset is measured at login from `server_info.time_now` vs `timestamp_now` (rounded to 15 min), then from `server_info.timezone`, then this TV's zone.
+  - Minutes = from the start to now + 60, clamped to 30–1440.
+
+### 7.8 Clear error messages (2.5)
+Errors show the provider's actual code and what to do. The same wording is used for live, movies and recordings (`<thing>` = channel, title or recording).
+
+| Cause | Message |
+|---|---|
+| HTTP 509, 429, 458 | "Provider says too many connections (509): stop playback on another device" |
+| HTTP 401, 403 | "Provider refused access (403): check your subscription is active" |
+| HTTP 404, 410 | "Provider says this <thing> isn't available (404)" |
+| HTTP 5xx | "Provider's server had a problem (502): try again in a minute" |
+| Other HTTP | "Provider returned an error (418)" |
+| Connection timeout | "Provider didn't respond in time: check your internet connection" |
+| Connection failed | "Couldn't connect to your provider: check your internet connection" |
+| Damaged stream | "The stream from your provider is damaged (ERROR_CODE_…)" |
+| Anything else | "This <thing> isn't playing right now (ERROR_CODE_…)" |
+
+- The log line carries the details, e.g. "Live playback failed on channel 101 CNN: HTTP 509 · ERROR_CODE_IO_BAD_HTTP_STATUS".
 
 ## 8. TV Guide
 
@@ -166,7 +224,14 @@ Three columns: **Groups** (270) | **Channels** (470) | **Preview pane** (the res
   - Programme cells are sized by duration. The cell on air now is lighter (Raised) than the others (Panel).
   - Rows without guide data are compact (38 instead of 52) and read "<channel> · no guide information". While loading: "Loading…".
   - A vertical **accent "now" line** has a time tag at the top.
-- OK on any cell plays that channel full screen. Divider rows show as small headings.
+- OK on a current or future cell plays that channel live, full screen. Divider rows show as small headings.
+- **Past shows (2.5)**, on catch-up channels:
+  - ◀ on a row's first cell moves the whole window **90 min back**, within that channel's catch-up days. On channels without catch-up, ◀ goes to the nav rail as before. ▶ on a row's last cell moves 90 min forward, back up to now. A **Now** pill appears in the header when the window is in the past.
+  - Past shows come from `get_simple_data_table` (fetched for visible catch-up rows once the window is in the past; cached for 30 min).
+  - Past cells that can be replayed start with "↺". Past cells outside the catch-up days, or on channels without catch-up, are dimmed; OK on them shows the toast "This show can't be replayed".
+  - The header shows "Aired 7:00 – 8:00 PM" with "Replay available · OK to watch" or "Not available to replay". The day label follows the window.
+  - OK on a replayable cell plays the show from its start in the **movie player** (§12): seek, pause, and Audio & subtitles. The title is the channel; the subtitle is "<show> · aired <day>, <time>". No resume point is saved. On error: "Provider says this recording isn't available (404)" and the like.
+  - The "now" line is only drawn when now is inside the window.
 - Empty texts:
   - Favorites: "No favorite channels yet. Hold OK on a channel to add it, or choose another group."
   - Other groups: "No channels in this group. Choose another group above."
@@ -261,7 +326,7 @@ The player screen always holds focus and handles every key itself. The stock Exo
   - Under 30 s it isn't saved.
   - Past 95%, or with under 60 s left, the resume point is cleared (counted as finished).
 - When a title ends: mark it finished, then play the next item in the queue, or leave if there is none.
-- On a playback error, show "This title couldn't be played. (<code>)" and "Press Back to return."
+- On a playback error, show the clear message (§7.8) and "Press Back to return."
 - Opening a movie adds it to Recently watched. Opening an episode records it as the series' last episode and adds the series to Recently watched.
 - **Audio & subtitles panel**: as in live, but the note reads "Used for all movies & series.␣␣Back to close." (two spaces) and the empty text is "This title has no subtitles."
   - Choices are saved as **one general setting for all movies and series** (`vod_audio_lang`, `vod_text_lang`), applied **once per title** when its tracks first load.
@@ -316,24 +381,35 @@ The player screen always holds focus and handles every key itself. The stock Exo
 - **Install**:
   - If "install unknown apps" isn't allowed, open that system screen with the toast "Allow Sparky IPTV to install updates, then press Back".
   - Otherwise, download to `cache/updates/sparky-iptv.apk` and launch Android's installer through a FileProvider.
+  - Extra presses are ignored while downloading and for **10 s** after the installer opens (2.5; fixes a second download).
 - A manual check shows "Checking for updates…", then "You have the latest version" or the update toast.
 
 ## 16. Diagnostics
 
 - Left side: the title; "Scan to open the full log on your phone, then copy it and send it to Claude."; a QR code (the log server on ports 8091–8099, only while the page is open); the URL; and a header:
-  - Version and build, the device, memory used/max, and library counts.
+  - The version ("Sparky IPTV 2.5 (build 15)"; the build appears once, fixed in 2.5), the device, memory used/max, and library counts.
   - **Catch-up**: "N channels · up to N days", or "not offered by your provider", or "checking at the next playlist update".
+  - "Channel switch: average 1.4 s (last 10)", once channels have been switched.
+  - The catch-up test result, once run.
   - Playlist type and live format.
-- Buttons: Refresh, and Clear crash (only if there is one).
+- Buttons: **Test catch-up** (2.5), then Refresh and Clear crash (only if there is one).
+  - Test catch-up asks the provider for a recording from about an hour ago on up to 3 catch-up channels (favourites first), trying the path link and then the timeshift.php link. Success needs HTTP 200/206 and at least 1,000 bytes that look like MPEG-TS (sync byte 0x47) or `#EXTM3U`.
+  - The working format is remembered. The result reads "Catch-up works (timeshift path link, server time UTC+1:00, channel 101)" or "Catch-up didn't work (<channel> <format>: <reason>)".
 - Right side: "Last crash" (if any, in red) and the **last 200 log lines, newest first**. Errors are accent, warnings amber. The lines are focusable so the remote can scroll them.
 - The phone page has a **Copy everything** button.
 - The log is kept in memory and in a file (400 lines, trimmed past 256 KB). Crashes are written to `last_crash.txt` by an uncaught-exception handler. **The password and username are replaced with •••** in every log line.
+- **Cancelled loads are not logged as errors** (2.5): coroutine cancellations and cancelled network calls (for example, a detail page closed before its data arrived) are dropped from the log.
+- The first daily refresh logs "Daily refresh: first update" (before 2.5 it printed the hours since 1970).
 
 ## 17. About
 
 - Left side:
-  - "ABOUT", the avatar (96, circle), the name **Ashwin Mathias** and the role "Creator of Sparky IPTV" (from `assets/about.json`).
-  - A "Connect on LinkedIn" card with a QR code. The URL is empty for now, so it shows "in" and "Link coming soon".
+  - "ABOUT", then the author row: the avatar (64, circle), **Ashwin Mathias** (22 Bold) and "Creator of Sparky IPTV" (from `assets/about.json`).
+  - **Sparky card** (2.5; replaces LinkedIn, which was removed):
+    - Sparky's photo (96, circle; a yellow Labrador against a blue sky).
+    - "Designed with love for **Sparky**, who sits on the couch while we watch TV."
+    - "Buy Sparky a treat", then two QR codes side by side: **Venmo** "@AshwinMathias" and **Zelle** "Scan with your bank app".
+    - The codes are generated in the app from links in `about.json` (`venmo`, `zelle`), not screenshots. That leaves out the bank-app chrome, the account digits and the face photo. Ashwin accepted that they're public (Oct 2026).
   - Version, Device and Network.
   - "Your login is stored only on this TV and is only sent to your provider."
 - Right side: **Release history** from `assets/changelog.json`, newest first. Each version is a focusable card: "Version 2.3", the date, a **LATEST** tag on the first, the title, and bullet notes. Below that, **Open-source credits**.
@@ -353,7 +429,8 @@ The player screen always holds focus and handles every key itself. The stock Exo
 
 ## 20. Out of scope (decided, not built)
 
-- Catch-up/timeshift playback (only the count is shown in Diagnostics).
+- **Failover** (retry, then the other format, then a backup copy of the same channel): planned for **2.6**.
+- **Preloading neighbouring channels**: never. The account allows 1 connection.
 - Google TV home-screen "Continue watching" integration (discussed and deferred).
 - Multiple playlists or profiles, parental controls, recording, external EPG (XMLTV), and multi-view.
 - An iOS version (discussed; open questions remain).
