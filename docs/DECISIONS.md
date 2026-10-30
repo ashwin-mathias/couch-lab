@@ -52,12 +52,12 @@ Why the app is the way it is. Read this before changing behaviour, so settled qu
 10. **A section that fails must not fail the whole load.** Keep last time's copy.
 11. **Show progress honestly**: MB downloaded, item counts, a separate "Preparing" step, and an elapsed timer.
 12. **CI errors are invisible without annotations.** Keep the `::error::` step in the workflow.
-16. **Don't trust one magic byte to recognise video.** Providers' recordings can start mid-packet or use 192-byte packets. Sniff for repeated sync bytes, HLS and MP4, and log what was actually received (the 2.5 test said "not video" for real recordings).
-17. **A player must never just sit there.** Every resume or recording start has a 10 s watchdog with a fallback and a message.
-18. **The clipboard API needs https.** Pages served over plain http on the home network need the execCommand fallback.
 13. **Catch-up start times are in the server's local time,** not UTC or the TV's zone. Measure the offset from `server_info` at login.
 14. **Don't retry another stream format for login or connection-limit errors** (401/403/429/458/509). It can't help, and it uses the one allowed connection again.
 15. **Version names already contain the build.** Don't append it again (the 2.4 Diagnostics bug).
+16. **Don't trust one magic byte to recognise video.** Providers' recordings can start mid-packet or use 192-byte packets. Sniff for repeated sync bytes, HLS and MP4, and log what was actually received (the 2.5 test said "not video" for real recordings).
+17. **A player must never just sit there.** Every resume or recording start has a 10 s watchdog with a fallback and a message.
+18. **The clipboard API needs https.** Pages served over plain http on the home network need the execCommand fallback.
 
 ## Known limitations (accepted)
 - The EPG comes only from `get_short_epg` (12 entries per channel, fetched lazily). There's no XMLTV.
