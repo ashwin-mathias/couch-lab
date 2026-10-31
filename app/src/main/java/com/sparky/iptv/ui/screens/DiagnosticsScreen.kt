@@ -88,7 +88,7 @@ fun DiagnosticsScreen(vm: AppViewModel) {
     }
     DisposableEffect(Unit) {
         val s = LogServer.startOnFreePort(header)
-        url = if (s != null && ip != null) "http://$ip:${s.listeningPort}" else null
+        url = if (s != null && ip != null) "http://$ip:${s.listeningPort}/?k=${s.token}" else null
         AppLog.i("Diagnostics opened")
         onDispose { s?.stop() }
     }
@@ -106,7 +106,7 @@ fun DiagnosticsScreen(vm: AppViewModel) {
                 if (qr != null) Image(bitmap = qr, contentDescription = "Log QR code", modifier = Modifier.fillMaxSize())
                 else T("No Wi-Fi", size = 16, color = C.Dim)
             }
-            url?.let { T(it.removePrefix("http://"), size = 15, weight = FontWeight.SemiBold) }
+            if (url != null) T("Scan with your phone's camera", size = 13, color = C.Dim)
             T(remember(refreshTick, vm.catchupTest, vm.switchTimes.size) { header().trim() }, size = 12, color = C.Dim, maxLines = 10, lineHeight = 1.5f)
             Spacer(Modifier.weight(1f))
             PillButton(if (vm.catchupTest == "Testing…") "Testing…" else "Test catch-up") { vm.testCatchup() }

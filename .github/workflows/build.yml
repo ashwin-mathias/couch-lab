@@ -51,7 +51,10 @@ jobs:
           fi
 
       - name: Name the app file
-        run: cp app/build/outputs/apk/release/app-release.apk sparky-iptv.apk
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk sparky-iptv.apk
+          # The app checks this fingerprint before it installs an update.
+          sha256sum sparky-iptv.apk | cut -d' ' -f1 > sparky-iptv.apk.sha256
 
       - name: Publish download
         uses: softprops/action-gh-release@v2
@@ -61,10 +64,14 @@ jobs:
           body: |
             Install on Google TV with the Downloader app using:
             https://github.com/${{ github.repository }}/releases/latest/download/sparky-iptv.apk
-          files: sparky-iptv.apk
+          files: |
+            sparky-iptv.apk
+            sparky-iptv.apk.sha256
           make_latest: true
 
       - uses: actions/upload-artifact@v4
         with:
           name: sparky-iptv
-          path: sparky-iptv.apk
+          path: |
+            sparky-iptv.apk
+            sparky-iptv.apk.sha256

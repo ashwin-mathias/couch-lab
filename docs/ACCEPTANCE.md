@@ -11,6 +11,7 @@ Tick each box. Note the build number at the top of the run.
 - [ ] A2. A newer build installs **over** the old one. Login, favourites and history are kept.
 - [ ] A3. With a newer GitHub release: the toast "Update available — open Settings to install" appears, Settings shows the highlighted row, and the rail Settings icon shows the accent dot.
 - [ ] A4. The first install attempt opens the "install unknown apps" screen. After allowing it and pressing Back, install downloads (showing MB) and opens Android's installer.
+- [ ] A6. (2.5.2) An update installs only when the release has `sparky-iptv.apk.sha256`. Remove that file from a test release: no update toast. Edit the file's contents: Install shows "Update failed: The update failed its integrity check…" and nothing installs.
 - [ ] A5. Check for updates on the latest build shows "You have the latest version".
 
 ## B. Setup
@@ -119,6 +120,12 @@ Tick each box. Note the build number at the top of the run.
 - [ ] K2. Settings rows all work. Playlist info is correct (status, expiry, counts).
 - [ ] K3. Clear watch history removes resume points **and** saved audio/subtitle choices. Favourites and recents stay.
 
+## L0. Phone pages and stored login (2.5.2)
+- [ ] L0a. Scanning the Setup QR opens "Connect your TV". Typing the IP and port without `?k=…`, or with a wrong key, shows "Scan the QR code on your TV to open this page." (403). Same for the Diagnostics QR.
+- [ ] L0b. Leaving Setup and returning gives a new QR; the old link no longer works.
+- [ ] L0c. After upgrading from 2.5.1, the login still works with no re-entry. `adb shell run-as com.sparky.iptv cat shared_prefs/sparky.xml` shows `playlist_enc` and no `playlist`, and no readable password.
+- [ ] L0d. `adb backup` of the app produces no data (backup disabled).
+
 ## L. Diagnostics and About
 - [ ] L1. The Diagnostics QR opens the log on the phone. Copy everything works. **No password or username appears anywhere in the log.**
 - [ ] L2. Diagnostics shows the catch-up line.
@@ -152,4 +159,5 @@ Tick each box. Note the build number at the top of the run.
 | R16 | 2.5 | Test catch-up said "not a video stream (65536 bytes)" for real recordings | Test catch-up reports "Catch-up works …" with per-format results |
 | R17 | 2.5 | Resuming after a 1-minute pause sat there doing nothing | Pause 1 min on a catch-up channel, resume: it plays from the pause, or within 10 s goes live with a message; the log explains |
 | R18 | 2.5 | Copy everything did nothing on the phone (http page) | Copy pastes the full log; Select all works |
+| R19 | 2.5.2 | Setup and log pages open to anyone on the Wi-Fi; login in plain text; update not verified | See L0a–L0d and A6 |
 | R15 | 2.4 | Vague "This channel isn't playing right now." with no reason | Play on 2 devices: the message names the code (509) and the fix |

@@ -233,11 +233,20 @@ class Repository(private val ctx: Context, val prefs: Prefs) {
     }
 
     /** Streams a response straight to disk so large lists never sit in memory. */
-    suspend fun download(url: String, dest: File, onBytes: (Long) -> Unit) = withContext(Dispatchers.IO) {
+    suspend fun download(
+        url: String,
+        dest: File,
+        expectedSha256: String? = null,
+        requireHttps: Boolean = false,
+        onBytes: (Long) -> Unit,
+    ) = withContext(Dispatchers.IO) {
         val req = Request.Builder().url(url).header("User-Agent", USER_AGENT).build()
         http.newCall(req).execute().use { r ->
             if (!r.isSuccessful) throw IOException("Server returned HTTP ${r.code}")
+            // Redirects may not drop to plain http.
+            if (requireHttps && !r.request.url.isHttps) throw IOException("Download refused: not a secure link")
             val body = r.body ?: throw IOException("Empty response from server")
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
             dest.parentFile?.mkdirs()
             body.byteStream().use { input ->
                 FileOutputStream(dest).use { out ->
@@ -248,6 +257,7 @@ class Repository(private val ctx: Context, val prefs: Prefs) {
                         val n = input.read(buf)
                         if (n < 0) break
                         out.write(buf, 0, n)
+                        digest.update(buf, 0, n)
                         total += n
                         if (total - reported >= 256 * 1024) {
                             reported = total
@@ -256,6 +266,13 @@ class Repository(private val ctx: Context, val prefs: Prefs) {
                         }
                     }
                     onBytes(total)
+                }
+            }
+            if (expectedSha256 != null) {
+                val got = digest.digest().joinToString("") { "%02x".format(it) }
+                if (!got.equals(expectedSha256, ignoreCase = true)) {
+                    dest.delete()
+                    throw IOException("The update failed its integrity check, so it was not installed")
                 }
             }
         }

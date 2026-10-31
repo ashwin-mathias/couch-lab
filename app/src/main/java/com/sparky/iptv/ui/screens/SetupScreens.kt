@@ -83,8 +83,7 @@ fun SetupScreen(vm: AppViewModel) {
                     }
                 }
                 if (url != null) {
-                    T("Or open on any device on this Wi-Fi", size = 13, color = C.Dim)
-                    T(url.removePrefix("http://"), size = 18, weight = FontWeight.SemiBold)
+                    T("Scan with your phone's camera while on this Wi-Fi", size = 13, color = C.Dim)
                 } else {
                     T("Connect this TV to Wi-Fi to continue", size = 15, color = C.Muted)
                 }

@@ -9,6 +9,7 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
 import com.sparky.iptv.data.Playlist
+import com.sparky.iptv.data.SecretBox
 import fi.iki.elonen.NanoHTTPD
 import java.net.Inet4Address
 import java.net.NetworkInterface
@@ -20,10 +21,19 @@ import java.net.NetworkInterface
 class SetupServer(
     port: Int,
     private val deviceName: String,
+    /** One-time key that must be in the address (?k=…). Only the QR code on the TV carries it. */
+    val token: String,
     private val onSubmit: (Playlist) -> String?,
 ) : NanoHTTPD(port) {
 
     override fun serve(session: IHTTPSession): Response {
+        val key = session.parameters["k"]?.firstOrNull()
+        if (!SecretBox.same(key, token)) {
+            return newFixedLengthResponse(
+                Response.Status.FORBIDDEN, "text/plain; charset=utf-8",
+                "Scan the QR code on your TV to open this page.",
+            )
+        }
         return try {
             if (session.method == Method.POST && session.uri.startsWith("/save")) {
                 session.parseBody(HashMap())
@@ -43,12 +53,12 @@ class SetupServer(
                     else -> null
                 }
                 val err = missing ?: onSubmit(p)
-                if (err == null) html(SetupPage.done(deviceName)) else html(SetupPage.form(deviceName, p, err))
+                if (err == null) html(SetupPage.done(deviceName)) else html(SetupPage.form(deviceName, token, p, err))
             } else {
-                html(SetupPage.form(deviceName, null, null))
+                html(SetupPage.form(deviceName, token, null, null))
             }
         } catch (e: Exception) {
-            html(SetupPage.form(deviceName, null, "Something went wrong: ${e.message}"))
+            html(SetupPage.form(deviceName, token, null, "Something went wrong: ${e.message}"))
         }
     }
 
@@ -59,7 +69,7 @@ class SetupServer(
         /** Starts on the first free port from 8080. Returns null if none could be opened. */
         fun startOnFreePort(deviceName: String, onSubmit: (Playlist) -> String?): SetupServer? {
             for (port in 8080..8090) {
-                val s = SetupServer(port, deviceName, onSubmit)
+                val s = SetupServer(port, deviceName, SecretBox.newToken(), onSubmit)
                 try {
                     s.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
                     return s

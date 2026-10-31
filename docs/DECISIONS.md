@@ -8,6 +8,7 @@ Why the app is the way it is. Read this before changing behaviour, so settled qu
 
 | Version | Decision | Reason |
 |---|---|---|
+| 2.5.2 | **Security hardening:** one-time key on the phone setup and log pages; login encrypted with the Android Keystore and `allowBackup=false`; updates limited to this repo's https releases and verified against a published SHA-256 | A security audit found the pages open to anyone on the Wi-Fi, the password in plain text in backups, and no check on the downloaded update. Ashwin asked for these three fixes. Not done yet: pinning Actions to commit SHAs, Dependabot, upgrading NanoHTTPD |
 | 2.5.1 | **Signing key moved out of the repo into GitHub Actions secrets, and rotated** (`KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`) | The old keystore and its password were committed to a public repo, so anyone could sign an APK that installs over the app. Rotating needs a one-time uninstall and reinstall on each device |
 | 2.5 | **Faster channel switching with one stream only**: debounce 300 ms, start after about 1 s of buffer, kept-open connection, timing in Diagnostics | Plan allows **1 connection**; no bandwidth wasted |
 | 2.5 | **Never preload neighbouring channels** | Would need a 2nd connection (plan has 1) and doubles data |

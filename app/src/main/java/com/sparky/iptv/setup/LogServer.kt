@@ -1,14 +1,21 @@
 package com.sparky.iptv.setup
 
 import com.sparky.iptv.data.AppLog
+import com.sparky.iptv.data.SecretBox
 import fi.iki.elonen.NanoHTTPD
 
 /** Serves the activity log to a phone on the same Wi-Fi while the Diagnostics page is open. */
-class LogServer(port: Int, private val header: () -> String) : NanoHTTPD(port) {
+class LogServer(port: Int, val token: String, private val header: () -> String) : NanoHTTPD(port) {
 
     private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
     override fun serve(session: IHTTPSession): Response {
+        if (!SecretBox.same(session.parameters["k"]?.firstOrNull(), token)) {
+            return newFixedLengthResponse(
+                Response.Status.FORBIDDEN, "text/plain; charset=utf-8",
+                "Scan the QR code on your TV to open this page.",
+            )
+        }
         val crash = AppLog.lastCrash()
         val body = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -58,7 +65,7 @@ ${if (crash != null) "<h2>Last crash</h2><pre class=\"crash\">${esc(crash)}</pre
     companion object {
         fun startOnFreePort(header: () -> String): LogServer? {
             for (port in 8091..8099) {
-                val s = LogServer(port, header)
+                val s = LogServer(port, SecretBox.newToken(), header)
                 try {
                     s.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
                     return s

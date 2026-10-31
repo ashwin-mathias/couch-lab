@@ -310,7 +310,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 updateProgress = "Starting download…"
                 val f = Updater.apkFile(app)
-                repo.download(u.apkUrl, f) { b ->
+                repo.download(u.apkUrl, f, expectedSha256 = u.sha256, requireHttps = true) { b ->
                     viewModelScope.launch(Dispatchers.Main) { updateProgress = "Downloading · ${Repository.mb(b)}" }
                 }
                 AppLog.i("Downloaded update build ${u.build} (${Repository.mb(f.length())})")
@@ -357,7 +357,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
         server = s
-        setupUrl = if (s != null && ip != null) "http://$ip:${s.listeningPort}" else null
+        setupUrl = if (s != null && ip != null) "http://$ip:${s.listeningPort}/?k=${s.token}" else null
     }
 
     fun stopSetup() {

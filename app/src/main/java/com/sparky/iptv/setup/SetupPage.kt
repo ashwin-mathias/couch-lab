@@ -45,7 +45,7 @@ object SetupPage {
     private fun topBar(device: String) =
         """<div class="top">Sparky IPTV<span class="dev"><span class="dot"></span>${esc(device)}</span></div>"""
 
-    fun form(device: String, prev: Playlist?, error: String?): String {
+    fun form(device: String, token: String, prev: Playlist?, error: String?): String {
         val isM3u = prev?.type == "m3u"
         return head("Connect your TV") + topBar(device) + """
 <h1>Connect your TV</h1>
@@ -54,7 +54,7 @@ object SetupPage {
   <button type="button" id="tx" class="${if (isM3u) "" else "on"}" onclick="pick('xtream')">Login</button>
   <button type="button" id="tm" class="${if (isM3u) "on" else ""}" onclick="pick('m3u')">M3U link</button>
 </div>
-<form method="post" action="/save" onsubmit="document.getElementById('go').disabled=true;document.getElementById('go').textContent='Checking login...'">
+<form method="post" action="/save?k=${esc(token)}" onsubmit="document.getElementById('go').disabled=true;document.getElementById('go').textContent='Checking login...'">
   <input type="hidden" name="type" id="type" value="${if (isM3u) "m3u" else "xtream"}">
   <label for="name">Playlist name</label>
   <input id="name" name="name" value="${esc(prev?.name ?: "Home")}" autocomplete="off">

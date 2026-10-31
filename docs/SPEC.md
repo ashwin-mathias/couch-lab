@@ -1,6 +1,6 @@
 # Sparky IPTV — Product specification
 
-Version described: **2.5.1** (October 2026). This file says **what the app does**. How it looks is in [DESIGN.md](DESIGN.md), how it's built in [ARCHITECTURE.md](ARCHITECTURE.md), and how to prove it works in [ACCEPTANCE.md](ACCEPTANCE.md).
+Version described: **2.5.2** (October 2026). This file says **what the app does**. How it looks is in [DESIGN.md](DESIGN.md), how it's built in [ARCHITECTURE.md](ARCHITECTURE.md), and how to prove it works in [ACCEPTANCE.md](ACCEPTANCE.md).
 
 Words used: in quoted on-screen text, `␣` marks a space that must be kept (hint lines use three spaces around each `·`; meta lines join with `   ·   `). **must** = required; **should** = strong default. "OK" = the remote's centre button. ◀ ▶ ▲ ▼ = D-pad. "Hold OK" = press longer than 600 ms.
 
@@ -35,7 +35,8 @@ Later launches ──────────────► Loading (saved copy
 
 ## 4. Setup from the phone
 
-- The Setup screen shows a **QR code** for `http://<TV-IP>:<port>`. The port is the first free one from 8080–8090.
+- The Setup screen shows a **QR code** for `http://<TV-IP>:<port>/?k=<key>`, with the hint "Scan with your phone's camera while on this Wi-Fi". The port is the first free one from 8080–8090. The key is 128 random bits, new each time the screen opens.
+- Any request without the right `k` gets HTTP 403 "Scan the QR code on your TV to open this page." The form posts to `/save?k=<key>`. (2.5.2)
 - Scanning opens a phone web page (served by the TV) titled **"Connect your TV"**, with two tabs:
   - **Login**: Playlist name (default "Home"), Server URL, Username, Password (with a Show/Hide toggle).
   - **M3U link**: Playlist name, playlist link.
@@ -387,6 +388,8 @@ The player screen always holds focus and handles every key itself. The stock Exo
 ## 15. App updates
 
 - On each open, the app checks `api.github.com/repos/ashwin-mathias/couch-lab/releases/latest`. The tag `build-N` is compared with the installed `versionCode`; the asset used is the first one ending in `.apk`.
+  - (2.5.2) Only assets whose link starts with `https://github.com/ashwin-mathias/couch-lab/releases/download/` count. A release is offered only if it also has `sparky-iptv.apk.sha256` (the SHA-256 as 64 hex characters).
+  - The download must stay on https through redirects, and its SHA-256 must match. If not, the file is deleted and the toast says "Update failed: The update failed its integrity check, so it was not installed".
 - If newer: the toast "Update available — open Settings to install" (once per session).
 - **Install**:
   - If "install unknown apps" isn't allowed, open that system screen with the toast "Allow Sparky IPTV to install updates, then press Back".

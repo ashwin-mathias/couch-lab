@@ -32,7 +32,7 @@ How the app is built: the stack, the code layout, the data, storage, and the rel
 - Permissions: `INTERNET`, `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE`, `REQUEST_INSTALL_PACKAGES`.
 - `uses-feature`: `leanback` and `touchscreen`, both `required=false`.
 - Application:
-  - `largeHeap=true`, `usesCleartextTraffic=true` (providers use http), `banner=@drawable/banner`, `icon=@mipmap/ic_launcher`, `label="Sparky IPTV"`, theme `Theme.Sparky`.
+  - `largeHeap=true`, `allowBackup=false` (2.5.2; the saved login must not leave the device), `usesCleartextTraffic=true` (providers use http), `banner=@drawable/banner`, `icon=@mipmap/ic_launcher`, `label="Sparky IPTV"`, theme `Theme.Sparky`.
 - MainActivity:
   - `exported`, `singleTask`, `landscape`.
   - `configChanges` covers keyboard, keyboardHidden, navigation, orientation, screenLayout, screenSize, smallestScreenSize and uiMode.
@@ -49,6 +49,7 @@ data/
                          EpgEntry, AccountInfo, Library, RecentItem, Progress
   Names.kt               region prefix parsing, strip, divider rows, event badges, region labels
   Prefs.kt               all SharedPreferences ("sparky")
+  SecretBox.kt           Keystore AES-GCM for the saved login; one-time tokens for the phone pages
   Xtream.kt              XtreamClient (player_api.php), URL normalising, getText, JSONObject.s(), Parsers (detail/EPG JSON)
   StreamParsers.kt       streaming JsonReader parsers for the big lists (categories, live, movies, series)
   Snapshot.kt            compact binary cache (snap_live/movies/series.bin)
@@ -152,7 +153,8 @@ res/     drawable/*.xml icons, drawable-nodpi/{logo,avatar}.png + sparky.jpg, dr
 
 | Key | Value |
 |---|---|
-| `playlist` | JSON `{type,name,url,user,pass}` |
+| `playlist_enc` | (2.5.2) `"v1:"` + Base64(12-byte IV + AES-256-GCM ciphertext) of the JSON `{type,name,url,user,pass}`. Key `sparky_prefs_key` is in the Android Keystore (`SecretBox`) |
+| `playlist` | Old plain copy of the same JSON. Upgraded to `playlist_enc` on first read; written only if the Keystore is unavailable (logged) |
 | `account` | JSON `{status,expires,max,format,tz,off}` (`tz` and `off` = server time zone and UTC offset in minutes; since 2.5) |
 | `catchup_format` | `path` (.ts), `hls` (.m3u8) or `php`: the recording link format that last worked (from the test or from playback; default `path`) |
 | `live_format` | `m3u8` or `ts` |
@@ -214,12 +216,15 @@ BackHandler(enabled = panelOpen) { panelOpen = false }   // registered last = hi
 - `about.json` (2.5): `name`, `role`, `dog`, `venmo`, `venmoHandle`, `zelle`. The QR codes are generated at runtime with `Qr.bitmap`. LinkedIn was removed.
 - The crash handler writes `"time · version · thread\n" + redacted stack` and then calls the previous handler.
 
+- **Phone pages** (2.5.2): `SetupServer` and `LogServer` (NanoHTTPD) each get a `SecretBox.newToken()` and compare the `k` query parameter in constant time on every request. The token is only in the QR code.
+- **Updates** (2.5.2): `Updater` trusts only `https://github.com/ashwin-mathias/couch-lab/releases/download/` links and needs `sparky-iptv.apk.sha256`. `Repository.download(…, expectedSha256, requireHttps = true)` hashes while streaming and deletes the file on a mismatch. Android's same-key signature check still applies. The checksum guards against corruption or a bad mirror, not against a hijacked GitHub account; the signing key is the real protection.
+
 ## 9. Build, release, install
 
 - **GitHub Actions** (`.github/workflows/build.yml`) runs on every push to `main` (doc-only pushes are ignored) and on manual dispatch:
   1. Checkout, then setup-java temurin 17, then setup-gradle, then restore the signing key from secrets.
   2. `./gradlew --no-daemon assembleRelease`. On failure, the `e: ` and "What went wrong" lines are re-emitted as `::error::` annotations, because raw logs can't be downloaded without auth.
-  3. Copy to `sparky-iptv.apk` and publish a GitHub release `build-<run_number>` marked latest. Also upload it as an artifact.
+  3. Copy to `sparky-iptv.apk`, write `sparky-iptv.apk.sha256`, and publish both in a GitHub release `build-<run_number>` marked latest. Also upload it as an artifact.
 - `versionCode = GITHUB_RUN_NUMBER`; `versionName = "<appVersion> (build N)"`. The release is signed with the key from the GitHub Actions secrets `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` (debug builds too), so each build installs over the last. The workflow decodes the key to `$RUNNER_TEMP/release.jks` and passes `KEYSTORE_PATH` and the passwords to Gradle as environment variables. Without the secrets the build fails with an `::error::` annotation. Keep an offline backup of the keystore: if it is lost, every device needs an uninstall and reinstall.
 - **Install**: the Downloader app, code **6976634** → `https://github.com/ashwin-mathias/couch-lab/releases/latest/download/sparky-iptv.apk`. After that, use in-app updates.
 - **Release checklist**: bump `appVersion`; add a `changelog.json` entry (newest first, `{version, date YYYY-MM-DD, title, notes[]}`); update README controls if keys changed; update docs/ if behaviour changed; commit; push; watch the build; if it fails, read the annotations with `gh api repos/.../check-runs/<id>/annotations`.

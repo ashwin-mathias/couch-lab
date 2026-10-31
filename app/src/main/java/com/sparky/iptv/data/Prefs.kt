@@ -6,29 +6,42 @@ import org.json.JSONObject
 class Prefs(ctx: Context) {
     private val sp = ctx.getSharedPreferences("sparky", Context.MODE_PRIVATE)
 
+    /** The saved login. Stored encrypted (Android Keystore); an older plain copy is upgraded on first read. */
     var playlist: Playlist?
-        get() = sp.getString("playlist", null)?.let { raw ->
-            runCatching {
-                val o = JSONObject(raw)
-                Playlist(
-                    type = o.getString("type"),
-                    name = o.optString("name", "Home"),
-                    url = o.getString("url"),
-                    user = o.optString("user", ""),
-                    pass = o.optString("pass", ""),
-                )
-            }.getOrNull()
+        get() {
+            val enc = sp.getString("playlist_enc", null)
+            val raw = if (enc != null) SecretBox.decrypt(enc) else sp.getString("playlist", null)
+            if (enc != null && raw == null) AppLog.w("Saved login couldn't be decrypted; enter it again")
+            val p = raw?.let { parsePlaylist(it) }
+            if (enc == null && p != null) playlist = p // upgrade a plain 2.5.1 copy
+            return p
         }
         set(v) {
             val e = sp.edit()
-            if (v == null) e.remove("playlist") else e.putString(
-                "playlist",
-                JSONObject()
+            if (v == null) {
+                e.remove("playlist").remove("playlist_enc")
+            } else {
+                val json = JSONObject()
                     .put("type", v.type).put("name", v.name).put("url", v.url)
                     .put("user", v.user).put("pass", v.pass).toString()
-            )
+                val enc = runCatching { SecretBox.encrypt(json) }
+                    .onFailure { AppLog.w("Keystore unavailable; login stored unencrypted") }.getOrNull()
+                if (enc != null) e.putString("playlist_enc", enc).remove("playlist")
+                else e.putString("playlist", json).remove("playlist_enc")
+            }
             e.apply()
         }
+
+    private fun parsePlaylist(raw: String): Playlist? = runCatching {
+        val o = JSONObject(raw)
+        Playlist(
+            type = o.getString("type"),
+            name = o.optString("name", "Home"),
+            url = o.getString("url"),
+            user = o.optString("user", ""),
+            pass = o.optString("pass", ""),
+        )
+    }.getOrNull()
 
     var liveFormat: String
         get() = sp.getString("live_format", "m3u8") ?: "m3u8"

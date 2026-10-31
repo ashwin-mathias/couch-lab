@@ -1,5 +1,15 @@
 [
   {
+    "version": "2.5.2",
+    "date": "2026-10-31",
+    "title": "Security hardening",
+    "notes": [
+      "The phone setup and log pages now need the one-time key in the QR code, so others on your Wi-Fi can't open them",
+      "Your saved login is stored encrypted on the TV, and Android backup of app data is off",
+      "Updates are only accepted from this project's GitHub releases over a secure link, and are checked against a published fingerprint before installing"
+    ]
+  },
+  {
     "version": "2.5.1",
     "date": "2026-10-29",
     "title": "Catch-up fixes",

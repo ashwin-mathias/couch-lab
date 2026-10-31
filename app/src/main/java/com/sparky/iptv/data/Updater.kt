@@ -11,11 +11,14 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 
-data class UpdateInfo(val build: Int, val title: String, val apkUrl: String)
+data class UpdateInfo(val build: Int, val title: String, val apkUrl: String, val sha256: String)
 
 /** Checks GitHub for a newer build and installs it (Android always asks the user to confirm). */
 object Updater {
     private const val LATEST = "https://api.github.com/repos/ashwin-mathias/couch-lab/releases/latest"
+    /** Downloads are only accepted from this repository's releases. */
+    private const val TRUSTED_PREFIX = "https://github.com/ashwin-mathias/couch-lab/releases/download/"
+    private val SHA256 = Regex("^[0-9a-fA-F]{64}")
 
     @Suppress("DEPRECATION")
     fun installedBuild(ctx: Context): Int = runCatching {
@@ -30,14 +33,28 @@ object Updater {
             val build = o.optString("tag_name").removePrefix("build-").toIntOrNull() ?: return@runCatching null
             val assets = o.optJSONArray("assets")
             var url: String? = null
+            var shaUrl: String? = null
             if (assets != null) for (i in 0 until assets.length()) {
                 val a = assets.optJSONObject(i) ?: continue
-                if (a.optString("name").endsWith(".apk")) url = a.optString("browser_download_url")
+                val name = a.optString("name")
+                val link = a.optString("browser_download_url")
+                if (!link.startsWith(TRUSTED_PREFIX)) continue
+                if (name.endsWith(".apk")) url = link
+                if (name.endsWith(".apk.sha256")) shaUrl = link
             }
             val installed = installedBuild(ctx)
             AppLog.i("Update check: installed build $installed, latest build $build")
-            if (url == null || build <= installed) null
-            else UpdateInfo(build, o.optString("name").ifBlank { "Build $build" }, url)
+            if (url == null || build <= installed) return@runCatching null
+            if (shaUrl == null) {
+                AppLog.w("Build $build has no checksum file; not offering it")
+                return@runCatching null
+            }
+            val sha = SHA256.find(getText(repo.http, shaUrl).trim())?.value
+            if (sha == null) {
+                AppLog.w("Build $build checksum file is unreadable; not offering it")
+                return@runCatching null
+            }
+            UpdateInfo(build, o.optString("name").ifBlank { "Build $build" }, url, sha)
         }.onFailure { AppLog.w("Update check failed: ${it.message}") }.getOrNull()
     }
 
