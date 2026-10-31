@@ -8,6 +8,14 @@ Why the app is the way it is. Read this before changing behaviour, so settled qu
 
 | Version | Decision | Reason |
 |---|---|---|
+| 2.7 | **The Groups pane keeps focus**: moving between groups shows the channels after 300 ms but never moves focus; ▶ / OK enters the channel list, ◀ comes back to the selected group | Pausing on a group jumped focus to the channel pane (Ashwin's screenshots) |
+| 2.7 | **Collapsible region headings** (OK opens or closes; remembered; shared with the Guide picker) | Ashwin chose this over a separate Regions column or a flat list; it keeps the current layout |
+| 2.7 | **Favorites in your own order**, reordered on the TV with **Hold OK → Move**; first start keeps the provider's order | Ashwin wanted to reorder favorites |
+| 2.7 | **Favorites folders for channels only**; a channel can be in **several folders**; named on the TV and on the phone; shown in Live TV, the Guide picker and as **Home rows** | Ashwin's answers: US News, India News, India Movies… Movies and series get reordering only |
+| 2.7 | **Hold OK on a favorite opens a menu** (Move · Folders… · Remove) instead of removing at once | Removing takes two presses, so no accidental removals; Ashwin agreed |
+| 2.7 | **Backup and restore as a file on the phone** (QR → phone page), not a code or the cloud. Login encrypted with a passphrase; watch history a ticked checkbox; restore on an existing install defaults to **Add**; no backup reminders | A short code needs a server (Firebase later); the TV has no camera; a file can be kept. Ashwin agreed all recommendations |
+| 2.7 | No 2.6.1: the focus fix waited for 2.7 | Ashwin's call, with the other features |
+| 2.7 | Phone favorites page reorders with ↑ ↓ buttons, not drag | Dragging in phone browsers (especially iOS Safari) is unreliable without a library |
 | 2.6 | **Guide ▲/▼ move strictly by playable row, keeping the time position**; same for the group picker and the Live TV lists | Fixes focus jumping across divider rows when scrolling down the guide |
 | 2.6 | **Sleep timer**: Off · 30 · 60 · 90 min, default 90 (set in Settings), off unless chosen, **not restored after a restart**, any key in the last minute extends it; at the end the player is released so the stream closes | Falling asleep with the TV on kept the one allowed connection busy all night. Ashwin chose 90 min and no restore |
 | 2.6 | Sleep timer also reachable from the Audio & subtitles panel | The live buttons row only shows when paused or behind live, so without it the timer would need a pause first |
@@ -66,6 +74,8 @@ Why the app is the way it is. Read this before changing behaviour, so settled qu
 17. **A player must never just sit there.** Every resume or recording start has a 10 s watchdog with a fallback and a message.
 18. **The clipboard API needs https.** Pages served over plain http on the home network need the execCommand fallback.
 19. **Never commit signing keys or passwords**, even to a private repo. Keep them in GitHub secrets and keep an offline backup. Deleting a file does not remove it from git history, so a leaked key must be rotated.
+21. **Never move focus from an effect keyed on data.** `LaunchedEffect(channels) { requestFocus() }` in the channel list fired every time the Groups pane changed the group, so focus jumped panes (the 2.6 bug). Move focus only on an explicit user action or on first entry.
+22. **When a key opens a dialog on long press, open it on the key's release.** Otherwise the release (and repeats) arrive in the dialog and can press its first row.
 20. **On TV, never rely on the default ▲/▼ focus search across non-focusable rows in a lazy list.** Headings between rows, and rows that aren't composed yet, make it jump to a far cell, a header pill or another row (the 2.5 guide bug). Scroll to the target first, then request focus on it (`ListNav`).
 
 ## Known limitations (accepted)

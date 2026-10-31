@@ -103,6 +103,8 @@ class LiveFocus {
     val entry = FocusRequester()
     /** Set by the group list: focuses the selected group (or its region heading). */
     var focusSelectedGroup: () -> Unit = {}
+    /** Set by the channel list: focuses the first channel on screen (when the start channel is scrolled away). */
+    var focusVisible: () -> Boolean = { false }
 }
 
 @Composable
@@ -123,9 +125,10 @@ fun LiveScreen(vm: AppViewModel) {
 
     /** Moves focus into the channel list, once it's composed. Returns false if there's nothing to focus. */
     suspend fun focusChannels(): Boolean {
-        repeat(15) {
+        repeat(15) { n ->
             withFrameNanos { }
             if (runCatching { lf.entry.requestFocus() }.isSuccess) return true
+            if (n >= 3 && lf.focusVisible()) return true
         }
         return false
     }
@@ -178,8 +181,8 @@ fun LiveScreen(vm: AppViewModel) {
                 // A new list (and scroll position) per group, so it opens at its own start channel.
                 key(group, tiles) {
                     val onLeft = { lf.focusSelectedGroup(); true }
-                    if (tiles) TileGrid(vm, channels, vm.moveListFor(group), lf.entry, onLeft, onFocus = { focused = it })
-                    else ChannelList(vm, channels, vm.moveListFor(group), lf.entry, onLeft, onFocus = { focused = it })
+                    if (tiles) TileGrid(vm, channels, vm.moveListFor(group), lf, onLeft, onFocus = { focused = it })
+                    else ChannelList(vm, channels, vm.moveListFor(group), lf, onLeft, onFocus = { focused = it })
                 }
             }
         }
@@ -327,9 +330,10 @@ fun RegionHeading(
 
 @Composable
 private fun ChannelList(
-    vm: AppViewModel, channels: List<Channel>, moveList: String?, entry: FocusRequester,
+    vm: AppViewModel, channels: List<Channel>, moveList: String?, lf: LiveFocus,
     onLeft: () -> Boolean, onFocus: (Channel) -> Unit,
 ) {
+    val entry = lf.entry
     val now = rememberNow()
     // Start on the channel watched last, so coming back from full screen feels natural.
     val startIndex = remember(channels) {
@@ -347,6 +351,10 @@ private fun ChannelList(
         describe = { k -> channels.getOrNull(keys.indexOf(k))?.let { "${it.num} ${it.display}" } ?: "none" },
     )
     FollowMove(vm, moveList, state) { k -> channels.indexOfFirst { it.favKey == k } }
+    lf.focusVisible = {
+        val i = state.layoutInfo.visibleItemsInfo.map { it.index }.firstOrNull { it in channels.indices && !channels[it].divider }
+        i != null && runCatching { nav.requester(keys[i]).requestFocus() }.isSuccess
+    }
     LazyColumn(
         state = state,
         verticalArrangement = Arrangement.spacedBy(4.u),
@@ -414,14 +422,20 @@ private fun ChannelList(
 
 @Composable
 private fun TileGrid(
-    vm: AppViewModel, channels: List<Channel>, moveList: String?, entry: FocusRequester,
+    vm: AppViewModel, channels: List<Channel>, moveList: String?, lf: LiveFocus,
     onLeft: () -> Boolean, onFocus: (Channel) -> Unit,
 ) {
+    val entry = lf.entry
+    val requesters = remember { HashMap<String, FocusRequester>() }
     val now = rememberNow()
     val playable = remember(channels) { channels.filter { !it.divider } }
     val start = remember(playable) { playable.indexOfFirst { it.id == vm.prefs.lastChannel }.coerceAtLeast(0) }
     val state = rememberLazyGridState(initialFirstVisibleItemIndex = start)
     FollowMoveGrid(vm, moveList, state) { k -> playable.indexOfFirst { it.favKey == k } }
+    lf.focusVisible = {
+        val i = state.layoutInfo.visibleItemsInfo.map { it.index }.firstOrNull { it in playable.indices }
+        i != null && runCatching { requesters.getOrPut(playable[i].favKey) { FocusRequester() }.requestFocus() }.isSuccess
+    }
     LazyVerticalGrid(
         state = state,
         columns = GridCells.Fixed(3),
@@ -436,6 +450,7 @@ private fun TileGrid(
                 onClick = { vm.playLive(playable, i) },
                 onLongClick = { vm.holdFavorite(ch.favKey, ch.display, moveList, upDown = 3, leftRight = 1) },
                 modifier = Modifier
+                    .focusRequester(requesters.getOrPut(ch.favKey) { FocusRequester() })
                     .let { if (i == start) it.focusRequester(entry) else it }
                     .let { if (i % 3 == 0) it.leftKey(onLeft) else it }
                     .movingOutline(vm.moving?.key == ch.favKey)

@@ -1,6 +1,6 @@
 # Sparky IPTV — Product specification
 
-Version described: **2.6** (October 2026). This file says **what the app does**. How it looks is in [DESIGN.md](DESIGN.md), how it's built in [ARCHITECTURE.md](ARCHITECTURE.md), and how to prove it works in [ACCEPTANCE.md](ACCEPTANCE.md).
+Version described: **2.7** (October 2026). This file says **what the app does**. How it looks is in [DESIGN.md](DESIGN.md), how it's built in [ARCHITECTURE.md](ARCHITECTURE.md), and how to prove it works in [ACCEPTANCE.md](ACCEPTANCE.md).
 
 Words used: in quoted on-screen text, `␣` marks a space that must be kept (hint lines use three spaces around each `·`; meta lines join with `   ·   `). **must** = required; **should** = strong default. "OK" = the remote's centre button. ◀ ▶ ▲ ▼ = D-pad. "Hold OK" = press longer than 600 ms.
 
@@ -51,6 +51,7 @@ Later launches ──────────────► Loading (saved copy
   - Otherwise: "Your login stays on your home network".
 - With no Wi-Fi, the QR box shows "No Wi-Fi" and the text "Connect this TV to Wi-Fi to continue".
 - **Settings → Change login** opens the same screen.
+- **Restore from a backup file (2.7)**: a link under the form opens `/restore?k=<key>` (§14.3). With a login in the backup, the TV logs in with it, applies everything and starts Loading. Without one, the phone returns to the form with the note "Backup ready: 43 favorites and your settings. Enter your login to finish."; after Send to TV the backup is applied before Loading.
 
 ## 5. Loading
 
@@ -103,20 +104,30 @@ Later launches ──────────────► Loading (saved copy
 Three columns: **Groups** (270) | **Channels** (470) | **Preview pane** (the rest).
 
 ### 7.2 Group list
-- Order: **Favorites**, **Recently watched**, **All channels** (labelled "All my channels" when regions are filtered), then each visible region as a heading (label + channel count) followed by its groups (cleaned names + counts). Your chosen regions come first, then the rest by size. Groups with 0 channels are hidden.
-- Moving focus onto a group **selects it immediately**; there's no need to press OK.
-- ▲ / ▼ move between groups (and the "Show all regions" action), **skipping region headings** (2.6). The list scrolls first, then focus moves.
+- Order: **Favorites**, then your **favorites folders** (indented, with counts, 2.7), **Recently watched**, **All channels** (labelled "All my channels" when regions are filtered), then each visible region as a heading (label + channel count) followed by its groups (cleaned names + counts). Your chosen regions come first, then the rest by size. Groups with 0 channels are hidden.
+- **Focus stays in the Groups pane (2.7).** Moving onto a group shows its channels once the remote settles (**300 ms** without a key), but focus does not move. Before 2.7 the channel list pulled focus 150 ms after each group change, so pausing on a group jumped focus to the channel pane.
+- **▶ or OK on a group** enters the channel list on the last-watched channel in that group, otherwise the first (or the first one on screen).
+- ▲ / ▼ move row by row through headings, groups and the "Show all regions" action. The list scrolls first, then focus moves. ◀ goes to the nav rail.
+- **Collapsible region headings (2.7)**: `▾ UNITED STATES   8,666` when open, `▸` when closed.
+  - **OK** opens or closes the heading. **▶** opens a closed heading; on an open heading it moves to its first group.
+  - A closed region is one row; ▲ / ▼ skip its groups.
+  - Open / closed is remembered (`regions_closed`), also after a restart, and is shared with the Guide's group picker. All regions start open.
+  - If the selected group is inside a closed region, its heading shows as selected.
+  - Favorites, its folders, Recently watched and All channels don't fold.
 - On first launch, the selected group is Favorites if any live favorites exist, otherwise All channels.
 
 ### 7.3 Channel list
 - Each row (64 high): number, logo (or monogram), name, a ♥ if it's a favourite, "42m left", the current programme title, and a progress bar.
 - **Divider rows** from the provider (e.g. `##### NEWS #####`, made of 2+ `# = * ~ • ★` at both ends) show as small headings with lines. They are never playable and are skipped when changing channel in full screen.
-- Focus starts on the **last watched channel** if it's in the list, otherwise the first channel.
+- Opening Live TV, or Back from full screen, focuses the **last watched channel** if it's in the list, otherwise the first channel. Changing group never moves focus here by itself (§7.2).
+- **◀** on a channel (or on a tile in the first column) returns to the selected group in the Groups pane (its heading if the region is closed).
 - ▲ / ▼ move to the next / previous **channel**, skipping divider headings, and never jump elsewhere (2.6). The list scrolls first so about 2 rows stay visible beyond the focused one, then focus moves. ▼ on the last channel does nothing; ▲ on the first goes up to the header.
-- **OK** plays full screen. **Hold OK** toggles the favourite with the toast "Added ABC NEWS to Favorites" or "Removed … from Favorites".
-- For Favorites and Recently watched groups, a **Tiles / List** toggle appears in the header (default: list for Favorites, tiles for Recently watched; remembered per group). Other groups show the hint "Hold OK to ♥".
+- **OK** plays full screen. **Hold OK** on a channel that isn't a favourite adds it ("Added to Favorites · hold OK again for folders"). Hold OK on a favourite opens the **favourite menu** (§18.1). In Favorites and in a folder the menu offers **Move**.
+- In Favorites and folders the channels are in **your order** (§18.1); full-screen ▲ / ▼ follow it.
+- For Favorites, folders and Recently watched, a **Tiles / List** toggle appears in the header (default: list for Favorites, tiles for Recently watched; remembered per group). Other groups show the hint "Hold OK to ♥".
 - Empty texts:
   - Favorites: "No favorites yet. Hold OK on any channel to add it here."
+  - A folder: "No channels in this folder yet. Hold OK on a favorite channel and choose Folders…"
   - Recently watched: "Channels you watch will appear here."
   - Other groups: "No channels in this group."
 
@@ -233,7 +244,7 @@ Errors show the provider's actual code and what to do. The same wording is used 
   - "GUIDE" and the day ("Wednesday, Oct 28").
   - The focused programme's title (30 Bold); "number · channel", times, and "42m left"; the description (2 lines).
   - Right side: the clock, a **Favorites** pill toggle (filled heart when on; switches between Favorites and All channels), and a **Group: <name> ▾** pill that opens the group picker.
-- **Group picker**: a 420-wide panel on the left over a dimmed screen, titled "Choose a group", with "N groups · Back to close". It lists the same groups and headings as Live TV, and focus starts on the current group. Choosing a group also changes the Live TV group. ▲ / ▼ move between groups only, skipping region headings; "Show all regions" stays reachable (2.6).
+- **Group picker**: a 420-wide panel on the left over a dimmed screen, titled "Choose a group", with "N groups · OK on a region opens or closes it · Back to close". It lists the same rows as Live TV, including favorites folders and the **collapsible region headings** with the same open/closed state (2.7). Focus starts on the current group (or its heading if that region is closed). Choosing a group also changes the Live TV group. ▲ / ▼ move row by row; "Show all regions" stays reachable.
 - **Grid**:
   - The window runs 150 minutes from the current half hour. The ruler shows times every 30 min. The channel column is 224 wide.
   - Programme cells are sized by duration. The cell on air now is lighter (Raised) than the others (Panel).
@@ -261,10 +272,12 @@ Errors show the provider's actual code and what to do. The same wording is used 
 
 - Header: a greeting by hour ("Good morning" 5–11, "Good afternoon" 12–16, "Good evening" otherwise), "Updating playlist…" while refreshing, and the clock.
 - Rows, in this order. Rows with nothing in them are hidden.
-  1. **Favorites**: channel tiles (220 wide), then movie and series posters (132 wide).
+  1. **Favorites**: channel tiles (220 wide), then movie and series posters (132 wide), each in your order.
+  1b. **One row per favorites folder** (2.7), titled with the folder name, in folder order, with its channels as live tiles in the folder's order. Empty folders have no row.
   2. **Recently watched**: the last 12 items (channels, movies, series), newest first. Movie posters show resume progress.
   3. **Recently added**: the 20 newest movies (by `added`), filtered by region.
 - **Channel tiles play live with sound after 1 s of focus.**
+- **Hold OK** on a favourite opens the favourite menu (§18.1). In the Favorites row and folder rows it offers **Move** (◀ ▶). Elsewhere (Recently watched, Recently added) it adds the item, or opens the menu without Move.
 - If there's nothing to show yet: "Your channels will appear here" with "Watch something, or hold OK on any channel, movie or series to add it to Favorites." and buttons **Browse Live TV** and **Movies**.
 - Initial focus is on the first item of the first row on screen.
 
@@ -272,7 +285,7 @@ Errors show the provider's actual code and what to do. The same wording is used 
 
 - Two-pane layout: the content on the left, and a **400-wide live preview pane** on the right (same as Live TV).
 - Header: the title (30 Bold), a subtitle, and a **Tile view / List view** toggle (remembered per page; both pages start in list view).
-  - **Favorites** subtitle: "N channels · N movies · N series · Hold OK to remove". It shows Channels (3-column tiles or list rows), then "Movies & series" as a poster row.
+  - **Favorites** subtitle: "N channels · N movies · N series · Hold OK to move, sort into folders or remove". It shows Channels (3-column tiles or list rows) in your order, then "Movies & series" as a poster row (movies, then series, each in your order). Hold OK opens the favourite menu with **Move**: ▲ ▼ in the list; ◀ ▶ ▲ ▼ in tiles (▲ ▼ move by a row of 3); ◀ ▶ in the poster row.
   - **Recently watched** subtitle: "Your last N channels, movies and series". It lists all recent items. Movies and series appear as posters (tiles) or rows labelled "Movie" or "Series" (list).
 - Focus starts on the last watched channel if it's present.
 - Empty texts:
@@ -380,17 +393,47 @@ The player screen always holds focus and handles every key itself. The stock Exo
   - **LIBRARY**
     - **My regions** · the chosen region labels, or "All regions".
     - **Update playlist now** · "Updated 3 h ago" ("Updating…" while running). The playlist still updates automatically once a day.
+    - **Favorite folders** · "None yet", "1 folder" or "3 folders" (2.7). Opens §14.2.
     - **Clear watch history** (no value). Needs a second press: the first OK changes the title to "Press OK again to clear" for 3 s; a second OK within 3 s clears resume points and saved audio/subtitle choices, with the toast "Watch history cleared".
   - **ACCOUNT**
     - **Change login** · the playlist name. Scan a QR code and enter a new login on the phone.
   - **APP**
-    - **Version** · "2.6 (build N)". OK checks for updates ("Checking for updates…", then "You have the latest version" or "Update available — open Settings to install").
+    - **Version** · "2.7 (build N)". OK checks for updates ("Checking for updates…", then "You have the latest version" or "Update available — open Settings to install").
+    - **Back up settings** · "To your phone" (2.7). Opens §14.3.
+    - **Restore settings** · "From a backup file" (2.7). Opens §14.3.
     - **Diagnostics**.
     - **About Sparky IPTV**.
 - Focus starts on the update row if there is one, otherwise **Subtitle style**. ▲ / ▼ go through the rows in order.
 - The groups fit on screen at 1080p; the column scrolls only as a fallback (for example with the update row).
 - Right column: **PLAYLIST** (Name, Type, Server, Username, Status, Expires, Connections, and Library counts). The version is the Version row (2.6; before it was an APP block here).
 - The nav rail's Settings icon shows a small accent dot when an update is available.
+
+### 14.2 Favorite folders (2.7)
+- Full screen. Left: title "Favorite folders", the text "Folders show under Favorites in Live TV and the TV Guide, and as rows on Home. Hold OK on a favorite channel to put it in a folder.", then a list:
+  - **New folder** (+). OK shows a name field (Android TV keyboard) and **Create folder**. Errors: "Enter a name", "Use at most 30 characters", "There's already a folder called US News" (names are unique, ignoring case).
+  - One row per folder: name · "3 channels". OK opens **Rename · Move · Delete**.
+    - **Rename**: name field and **Save**; toast "Renamed to India News".
+    - **Move**: lifts the row; ▲ ▼ move it, OK drops ("Moved US News to position 2"), Back cancels.
+    - **Delete**: needs a second press within 3 s ("Press OK again to delete"); toast "Folder US News deleted · its channels stay in Favorites".
+- Right: **EDIT ON YOUR PHONE** with a QR code (a phone page, §14.4) and "Name folders, add channels and put them in order on your phone. Tap Save and the TV updates."
+- Back returns to Settings and stops the phone page.
+
+### 14.3 Back up and restore settings (2.7)
+- **Back up settings** and **Restore settings** open a screen with a QR code, three steps, and "Press Back when you're done. The page stops working when you leave this screen."
+- **Backup page (phone)** "Back up your settings": checkboxes **Login** (encrypted; disabled if the TV has no login) · **Favorites and regions** (favorites, their order and folders, My regions, open/closed regions) · **Playback settings** (subtitle style, sleep timer default, movie audio/subtitle languages, live and catch-up formats, per-channel audio/subtitle choices, tile/list views) · **Watch history** (resume points, last episode per series, recently watched). All ticked.
+  - With Login ticked: **Passphrase** and **Repeat passphrase** (at least 6 characters), "You'll need this to restore. It can't be recovered." Errors: "Use at least 6 characters for the passphrase.", "The passphrases don't match.", "Tick at least one thing to back up."
+  - **Download backup** returns the file `sparky-backup-2026-11-02.json` (Save to Files on iPhone; Downloads on Android). The TV shows "Backup saved to your phone" and logs what was included (never the contents).
+- **Restore page (phone)** "Restore from a backup": file picker, passphrase (with Show), and on an existing install **Add to what's here** (default; favorites, folders and history merged, settings replaced) or **Replace everything**. **Restore**.
+  - A login different from the TV's: "This backup uses a different login (http://server…). Restoring it replaces your current login." with **Restore anyway**. The new login is checked first ("The login in this backup didn't work: …"); then the TV clears its saved data and loads.
+  - Wrong passphrase: "Wrong passphrase · 2 tries left". After three, "Wrong passphrase three times. Open the screen on your TV again and scan the new QR code." and the page stops working.
+  - Not a backup: "This isn't a Sparky backup file." Damaged: "This backup file is damaged." Newer: "This backup is from a newer Sparky. Update the app first." Nothing changes in these cases.
+  - Success: "Restored · 43 favorites · settings from Nov 2." on the phone and as a TV toast. Everything is written in one go after the file is fully checked.
+  - **Renumbered channels**: favorites are matched by ID; any the provider no longer has are matched by their exact name once the whole library is loaded. If some are still missing: "41 of 43 favorites restored · 2 not found: CNN HD, …". Missing ones stay hidden in Favorites in case they come back.
+- The QR key works for **10 minutes**, and stops when the TV screen closes.
+
+### 14.4 Phone pages (2.7 additions)
+- Backup, restore and favorites folders use a separate small server on the first free port from **8100–8110**, with the same kind of one-time key in the QR. Without the key: HTTP **401** "Scan the QR code on your TV to open this page." After 10 minutes, or after three wrong passphrases: 403 "This page has expired…".
+- **Favorites folders page**: folders (name field, ↑ ↓, ✕ delete with a confirm), each with its channels (↑ ↓ ✕) and **Add a channel…** (a search box and a list of your favorite channels not yet in it); **New folder name** + Add; **All favorite channels** with ↑ ↓. **Save to TV** sends everything; the TV checks names (1–30 characters, unique) and shows "Favorites updated from your phone". Errors appear on the page ("Every folder needs a name."). Reordering uses ↑ ↓ buttons rather than dragging, which is unreliable in phone browsers.
 
 ### 14.1 Subtitle style (2.4)
 - One style for **all** subtitles: movies, series and live TV. It's saved on the TV and not cleared by Clear watch history.
@@ -462,10 +505,21 @@ The player screen always holds focus and handles every key itself. The stock Exo
 
 ## 18. Favourites, recents and history (rules)
 
-- Favourite keys: `live:<stream_id>`, `movie:<id>`, `series:<id>`, stored as one set.
+- Favourite keys: `live:<stream_id>`, `movie:<id>`, `series:<id>`, stored as one set, plus **your order** (`fav_order`, 2.7) and **folders** (`fav_folders`, 2.7).
+- New favourites go to the end. Removing a favourite also removes it from every folder.
+- First start of 2.7: the order is set from the provider's order, so nothing visibly changes until you move something.
 - Recents: the last **12** items `{type, id, ts}`, deduplicated, newest first. Channels are added after 10 s of watching; movies and series when played.
 - Resume points: `pos:movie:<id>` and `pos:episode:<id>` = "pos,dur,timestamp".
 - Clear watch history removes resume points, the last episode per series, and all saved audio/subtitle choices. **It does not remove** favourites or recents.
+
+### 18.1 Favourite menu, Move and folders (2.7)
+- **Hold OK** on an item that isn't a favourite adds it: "Added to Favorites · hold OK again for folders" (channels) or "Added Movie name to Favorites".
+- **Hold OK** on a favourite opens a small menu **once OK is released** (so the release doesn't press a menu row). Rows: **Move** (only in a list that can be reordered) · **Folders…** (channels only; value "Not in a folder" / "In 2 folders") · **Remove from favorites**. Back closes it. Removing now takes two presses.
+- **Move**: the item gets an accent outline and a hint shows at the top: "Moving CNN · ▲ ▼ to move · OK to drop · Back to cancel". The arrows move it one place (◀ ▶ in rows; a row of 3 for ▲ ▼ in tile grids); holding repeats. OK saves: "Moved CNN to position 3". Back puts it back: "Move cancelled". While moving, no other key does anything.
+- Lists you can reorder: Favorites in Live TV, the Favorites page, Home's Favorites row (channels, movies and series each among themselves), each folder (in Live TV and its Home row), and the folders themselves (§14.2). The TV Guide and Search follow the order but have no Move.
+- **Folders… (channels only)**: a checklist of your folders ("✓  In folder"); OK ticks or unticks. **New folder…** shows a name field and **Create folder**; the channel goes into the new folder. Back closes with "CNN is in 2 folders".
+- A channel can be in **several folders**. Folders hold only favourite channels.
+- In the full-screen live player, hold OK adds a channel, or opens the menu without Move.
 
 ## 19. Lifecycle
 
@@ -474,7 +528,9 @@ The player screen always holds focus and handles every key itself. The stock Exo
 
 ## 20. Out of scope (decided, not built)
 
-- **Failover** (retry, then the other format, then a backup copy of the same channel): planned for **2.6**.
+- **Failover** (retry, then the other format, then a backup copy of the same channel): not scheduled yet.
+- **Folders for movies and series**: decided no (2.7); they get reordering only.
+- **Automatic or cloud backup**: later, with Firebase sync.
 - **Preloading neighbouring channels**: never. The account allows 1 connection.
 - Google TV home-screen "Continue watching" integration (discussed and deferred).
 - Multiple playlists or profiles, parental controls, recording, external EPG (XMLTV), and multi-view.

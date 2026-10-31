@@ -162,7 +162,8 @@ Usage:
 - **Groups column**, 270 wide: padding top 28, start 20, end 16.
   - The "GROUPS" label (padding start 10, top 6, bottom 14).
   - The list: 4 spacing. Group rows are 42 high (radius 10, padding 12): the name 15 (Normal; SemiBold when selected or focused) and the count 13 Dim.
-  - Region headers: Label `Text2` with the count 11; padding top 18 and bottom 6.
+  - Region headings (2.7) are focusable rows, 42 high (radius 10, padding 12), with 10 above: the arrow `▾` / `▸` 14 `Text2` in an 18-wide slot, the Label `Text2`, and the count 11 Dim. Focused: the usual light fill with `OnFocus` text. Selected (closed, holding the current group): `Raised`.
+  - Favorites folder rows (2.7) are group rows indented 14, with the name 14.
   - The action row is 42 high on `Panel`, 14 SemiBold.
 - A 1 px `Line` divider.
 - **Channels column**, 470 wide: padding top 28 and horizontal 12.
@@ -226,11 +227,21 @@ Usage:
   - The **Now** pill is first in the header pill row: 40 high, `Raised`, radius 999, "Now" 14 SemiBold, padding 18.
 - **Group picker**: scrim `Bg@0.7`; the panel is 420 wide, `Panel`, padding 20×28. Rows are 46 high.
 
+### 8.5a Favourite menu, folder checklist, Move (2.7)
+- Menus are dialogs: a panel 460 wide (480 for the folder checklist), `Panel`, radius 18, a 1 px `Line` border, padding 22, spacing 6. The scrim is the system dialog dim.
+  - A Label ("FAVORITE", "FOLDERS", "FOLDER"), then the item name 20 Bold (2 lines), then 10 space.
+  - **Menu rows**: 48 high, `Raised`, radius 10, padding 16: the title 16 SemiBold on the left, the value 14 `Dim` on the right (`OnFocusMuted` focused).
+  - The hint "Back to close" 12 Dim at the bottom. Errors 14 `Accent`.
+  - The folder list scrolls above 380 high.
+- **Name field**: 50 high, `Bg`, radius 10, border 1 `Line` (focused 2 `Text`), padding 16, text 16 (placeholder Dim).
+- **Moving**: the item gets a 3 px `Accent` outline (radius 14). A pill at the top centre (20 from the top), `Accent` with `Bg` text 15 SemiBold, padding 22 × 10: "Moving CNN · ▲ ▼ to move · OK to drop · Back to cancel".
+
 ### 8.6 Home
 - LazyColumn padding start 40, top 24, bottom 48; spacing 26.
 - The header row (padding start 8, end 48): the greeting 30 Bold, a spacer, the updating text 13 Dim, and the clock.
 - Each row: Label (Muted, padding start 8), a 10 gap, then a LazyRow with spacing 20 and row padding start 8, end 48, top 8, bottom 8 (room for the focus scale).
 - Channel tiles 220; posters 132.
+- Folder rows (2.7) follow Favorites and look the same: the folder name as the Label, then channel tiles.
 
 ### 8.7 Favorites / Recently watched pages
 - Content grid padding 40 / 28 / 32 / 48. Tiles: 3 columns, spacing 18 × 22. List: 1 column, spacing 6.
@@ -263,7 +274,7 @@ Usage:
 - The left column is 520 wide with spacing 4, scrollable only as a fallback (2.6):
   - **Rows**: single line, **48 high**, the usual `FocusItem` (`Panel`; the update row `Raised`), padding 20. The title 17 SemiBold on the left; a 16 gap; the value 14 `Dim` on the right (`OnFocusMuted` when focused), right-aligned and ellipsized.
   - **Group headings**: the `Label` style (12 SemiBold uppercase, Dim), padding start 4; 16 above (none for the first) and 6 below, counting the column spacing.
-  - At 1080p the four groups (9 rows) fit without scrolling.
+  - At 1080p the four groups (12 rows in 2.7: Favorite folders, Back up settings and Restore settings were added) fit without scrolling.
 - The right column has spacing 14, with info rows of the label 14 Dim (140 wide) and the value 14 Text2. Only the PLAYLIST block (the APP block was removed in 2.6).
 
 ### 8.13 Regions
@@ -309,6 +320,11 @@ Usage:
     - A spacer, then Version, Device, Network, and the privacy note.
   - Release cards are `Panel` (focused `Raised`), radius 14, padding 22×18: "Version x" 13 Bold Text2, the date 13 Dim, "LATEST" 11 Bold Accent, the title 18 Bold, and bullets 14 Muted.
 
+### 8.17 Favorite folders, Back up and Restore screens (2.7)
+- **Favorite folders**: padding 96 × 56. Left column 620 wide, spacing 14: the title 34 Bold, the text 15 Muted (3 lines, lineHeight 1.5), then a list of menu rows (48 high, spacing 6). Then an 80 gap and the QR column.
+- **Back up / Restore**: padding 112 × 64, like Setup: the title 40 Bold, the text 18 Muted (max 560 wide), numbered steps (number 14 Bold Dim in a 30 slot, text 17), the hint 14 Dim. Then an 80 gap and the QR column.
+- **QR column** (max 420 wide, spacing 16): a Label, the QR 260 on a `Text` tile (radius 18, padding 20), the text 15 Muted, and the hint 13 Dim.
+
 ## 9. Phone web pages (setup and diagnostics)
 
 - They are styled to match: background `#0E0F11`, text `#EEEBE5`, a system font stack, max width 440 (setup) or 760 (log).
@@ -316,3 +332,9 @@ Usage:
 - The primary button is 54 high, radius 14, `#EEEBE5` with dark text.
 - The tab switcher is a segmented control; the active tab is light with dark text.
 - The error box uses the error colours. Success shows a 64 px circle with a green tick.
+- **2.7 pages** (backup, restore, favorites folders) use the same base plus:
+  - Checkbox / radio cards: padding 14 × 16, `#16171A`, border `#2A2C31`, radius 12, with a small `#8A8781` line under the title.
+  - Message boxes: success `#17221A` / `#3B5A3E` / `#C9E3C6`; warning `#2A2417` / `#6B5A30` / `#F2E2B8`; error as before.
+  - A secondary button (50 high, `#16171A`, bordered) for "Restore anyway".
+  - Folder cards (radius 14) with channel rows (number 12 Dim, name 15, and 40 × 36 icon buttons ↑ ↓ ✕). Section headings are 13 uppercase `#8A8781` with letter spacing. **Save to TV** sticks to the bottom.
+  - On the setup page, a "Restore from a backup file" link under the form.
