@@ -1,6 +1,6 @@
 # Sparky IPTV — Product specification
 
-Version described: **2.7.1** (October 2026). This file says **what the app does**. How it looks is in [DESIGN.md](DESIGN.md), how it's built in [ARCHITECTURE.md](ARCHITECTURE.md), and how to prove it works in [ACCEPTANCE.md](ACCEPTANCE.md).
+Version described: **2.8** (October 2026). This file says **what the app does**. How it looks is in [DESIGN.md](DESIGN.md), how it's built in [ARCHITECTURE.md](ARCHITECTURE.md), and how to prove it works in [ACCEPTANCE.md](ACCEPTANCE.md).
 
 Words used: in quoted on-screen text, `␣` marks a space that must be kept (hint lines use three spaces around each `·`; meta lines join with `   ·   `). **must** = required; **should** = strong default. "OK" = the remote's centre button. ◀ ▶ ▲ ▼ = D-pad. "Hold OK" = press longer than 600 ms.
 
@@ -36,7 +36,8 @@ Later launches ──────────────► Loading (saved copy
 ## 4. Setup from the phone
 
 - The Setup screen shows a **QR code** for `http://<TV-IP>:<port>/?k=<key>`, with the hint "Scan with your phone's camera while on this Wi-Fi". The port is the first free one from 8080–8090. The key is 128 random bits, new each time the screen opens.
-- Any request without the right `k` gets HTTP 403 "Scan the QR code on your TV to open this page." The form posts to `/save?k=<key>`. (2.5.2)
+- Any request without the right `k` gets HTTP **401** "Scan the QR code on your TV to open this page." (403 before 2.8). The form posts to `/save?k=<key>`. (2.5.2)
+- **The key expires after 10 minutes without use (2.8)**; the Setup screen then shows a new QR code by itself (checked every 20 s, never while a login is being checked). The old link answers 403 "This page has expired…".
 - Scanning opens a phone web page (served by the TV) titled **"Connect your TV"**, with two tabs:
   - **Login**: Playlist name (default "Home"), Server URL, Username, Password (with a Show/Hide toggle).
   - **M3U link**: Playlist name, playlist link.
@@ -382,6 +383,7 @@ The player screen always holds focus and handles every key itself. The stock Exo
 - Three rows: **Channels** (cards 260 wide with logo and name), **Movies**, **Series** (posters 140 wide). Each row shows up to 40 results.
 - Matching is a case-insensitive substring of the raw name. Results respect regions; favourite channels are always included.
 - Hints: "Press OK to type. Results appear as you type." and "No matches for "xyz"."
+- **Search runs in the background (2.8)**, 250 ms after the last key, so typing doesn't lag on large catalogs. "No matches" shows only once that search has finished.
 
 ## 14. Settings
 
@@ -398,7 +400,7 @@ The player screen always holds focus and handles every key itself. The stock Exo
   - **ACCOUNT**
     - **Change login** · the playlist name. Scan a QR code and enter a new login on the phone.
   - **APP**
-    - **Version** · "2.7 (build N)". OK checks for updates ("Checking for updates…", then "You have the latest version" or "Update available — open Settings to install").
+    - **Version** · "2.8 (build N)". OK checks for updates ("Checking for updates…", then "You have the latest version" or "Update available — open Settings to install").
     - **Back up settings** · "To your phone" (2.7). Opens §14.3.
     - **Restore settings** · "From a backup file" (2.7). Opens §14.3.
     - **Diagnostics**.
@@ -421,7 +423,7 @@ The player screen always holds focus and handles every key itself. The stock Exo
 ### 14.3 Back up and restore settings (2.7)
 - **Back up settings** and **Restore settings** open a screen with a QR code, three steps, and "Press Back when you're done. The page stops working when you leave this screen."
 - **Backup page (phone)** "Back up your settings": checkboxes **Login** (encrypted; disabled if the TV has no login) · **Favorites and regions** (favorites, their order and folders, My regions, open/closed regions) · **Playback settings** (subtitle style, sleep timer default, movie audio/subtitle languages, live and catch-up formats, per-channel audio/subtitle choices, tile/list views) · **Watch history** (resume points, last episode per series, recently watched). All ticked.
-  - With Login ticked: **Passphrase** and **Repeat passphrase** (at least 6 characters), "You'll need this to restore. It can't be recovered." Errors: "Use at least 6 characters for the passphrase.", "The passphrases don't match.", "Tick at least one thing to back up."
+  - With Login ticked: **Passphrase** and **Repeat passphrase** (**at least 10 characters**, 2.8; 6 in 2.7), "At least 10 characters; a short sentence is easy to remember. You'll need it to restore, and it can't be recovered." Errors: "Use at least 10 characters for the passphrase. A short sentence works well.", "The passphrases don't match.", "Tick at least one thing to back up."
   - **Download backup** returns the file `sparky-backup-2026-11-02.json` (Save to Files on iPhone; Downloads on Android). The TV shows "Backup saved to your phone" and logs what was included (never the contents).
 - **Restore page (phone)** "Restore from a backup": file picker, passphrase (with Show), and on an existing install **Add to what's here** (default; favorites, folders and history merged, settings replaced) or **Replace everything**. **Restore**.
   - A login different from the TV's: "This backup uses a different login (http://server…). Restoring it replaces your current login." with **Restore anyway**. The new login is checked first ("The login in this backup didn't work: …"); then the TV clears its saved data and loads.
@@ -432,7 +434,8 @@ The player screen always holds focus and handles every key itself. The stock Exo
 - The QR key works for **10 minutes**, and stops when the TV screen closes.
 
 ### 14.4 Phone pages (2.7 additions)
-- Backup, restore and favorites folders use a separate small server on the first free port from **8100–8110**, with the same kind of one-time key in the QR. Without the key: HTTP **401** "Scan the QR code on your TV to open this page." After 10 minutes, or after three wrong passphrases: 403 "This page has expired…".
+- Backup, restore and favorites folders use a separate small server on the first free port from **8100–8110**, with the same kind of one-time key in the QR. Without the key: HTTP **401** "Scan the QR code on your TV to open this page." After 10 minutes, or after three wrong passphrases: 403 "This page has expired…". Requests larger than **2 MB** get 413 (2.8).
+- **Restore limits (2.8)**: at most 5,000 favorites, 100 folders, 2,000 resume points, 2,000 last episodes, the 200 most recent audio/subtitle choices (as on the TV) and 50 tile/list settings are taken from a file; anything beyond is ignored. Backups made on a TV never reach these limits.
 - **Favorites folders page**: folders (name field, ↑ ↓, ✕ delete with a confirm), each with its channels (↑ ↓ ✕) and **Add a channel…** (a search box and a list of your favorite channels not yet in it); **New folder name** + Add; **All favorite channels** with ↑ ↓. **Save to TV** sends everything; the TV checks names (1–30 characters, unique) and shows "Favorites updated from your phone". Errors appear on the page ("Every folder needs a name."). Reordering uses ↑ ↓ buttons rather than dragging, which is unreliable in phone browsers.
 
 ### 14.1 Subtitle style (2.4)
@@ -469,7 +472,7 @@ The player screen always holds focus and handles every key itself. The stock Exo
 
 ## 16. Diagnostics
 
-- Left side: the title; "Scan to open the full log on your phone, then copy it and send it to Claude."; a QR code (the log server on ports 8091–8099, only while the page is open); the URL; and a header:
+- Left side: the title; "Scan to open the full log on your phone, then copy it and send it to Claude."; a QR code (the log server on ports 8091–8099, only while the page is open; the key expires after 10 minutes without use and a new QR code appears, 2.8); the URL; and a header:
   - The version ("Sparky IPTV 2.5 (build 15)"; the build appears once, fixed in 2.5), the device, memory used/max, and library counts.
   - **Catch-up**: "N channels · up to N days", or "not offered by your provider", or "checking at the next playlist update".
   - "Channel switch: average 1.4 s (last 10)", once channels have been switched.

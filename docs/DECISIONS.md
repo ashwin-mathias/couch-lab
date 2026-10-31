@@ -9,6 +9,11 @@ Why the app is the way it is. Read this before changing behaviour, so settled qu
 | Version | Decision | Reason |
 |---|---|---|
 | 2.7.1 | **The squirrel on the TV in the icon is black**, not brown (launcher icon, banner, in-app logo) | Ashwin's request |
+| 2.8 | **Code review applied: smaller, faster, safer, behaviour unchanged** (R8, trimmed fonts, WebP; cached login; background search; shared connection pool; restore limits; shared phone server) | Ashwin asked for all review items in one release |
+| 2.8 | **Backup passphrase at least 10 characters** (was 6) | A backup in iCloud or Files can be guessed offline; Ashwin accepted the recommendation. PBKDF2 rounds stay 210,000 so older backups still open without a format change |
+| 2.8 | **R8 without renaming** (`-dontobfuscate`) | Readable crash reports and logs matter more than the extra few hundred KB |
+| 2.8 | **Fonts keep every character Inter covers**; only unused OpenType features and private-use glyphs removed | A Latin-only subset would save more, but Cyrillic or Greek channel names would switch to the system font |
+| 2.8 | Setup and Diagnostics QR keys expire after 10 minutes without use, with a new QR shown automatically | Same protection as the 2.7 pages, without making anyone press anything |
 | 2.7 | **The Groups pane keeps focus**: moving between groups shows the channels after 300 ms but never moves focus; ▶ / OK enters the channel list, ◀ comes back to the selected group | Pausing on a group jumped focus to the channel pane (Ashwin's screenshots) |
 | 2.7 | **Collapsible region headings** (OK opens or closes; remembered; shared with the Guide picker) | Ashwin chose this over a separate Regions column or a flat list; it keeps the current layout |
 | 2.7 | **Favorites in your own order**, reordered on the TV with **Hold OK → Move**; first start keeps the provider's order | Ashwin wanted to reorder favorites |
@@ -75,6 +80,8 @@ Why the app is the way it is. Read this before changing behaviour, so settled qu
 17. **A player must never just sit there.** Every resume or recording start has a 10 s watchdog with a fallback and a message.
 18. **The clipboard API needs https.** Pages served over plain http on the home network need the execCommand fallback.
 19. **Never commit signing keys or passwords**, even to a private repo. Keep them in GitHub secrets and keep an offline backup. Deleting a file does not remove it from git history, so a leaked key must be rotated.
+23. **Don't decrypt on a hot path.** A property getter that goes through the Android Keystore (the saved login) was read for every row while scrolling. Cache secrets in memory after the first read.
+24. **Turning on R8 needs its own check on the TV.** Shrinking can remove code reached only by reflection; build it as a separate step and run the acceptance list.
 21. **Never move focus from an effect keyed on data.** `LaunchedEffect(channels) { requestFocus() }` in the channel list fired every time the Groups pane changed the group, so focus jumped panes (the 2.6 bug). Move focus only on an explicit user action or on first entry.
 22. **When a key opens a dialog on long press, open it on the key's release.** Otherwise the release (and repeats) arrive in the dialog and can press its first row.
 20. **On TV, never rely on the default ▲/▼ focus search across non-focusable rows in a lazy list.** Headings between rows, and rows that aren't composed yet, make it jump to a far cell, a header pill or another row (the 2.5 guide bug). Scroll to the target first, then request focus on it (`ListNav`).

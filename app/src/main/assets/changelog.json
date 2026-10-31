@@ -1,5 +1,18 @@
 [
   {
+    "version": "2.8",
+    "date": "2026-10-31",
+    "title": "Smaller, smoother, safer",
+    "notes": [
+      "The app is about a third of its old size (about 4 MB instead of 11 MB), so updates download faster.",
+      "Smoother scrolling in Live TV and the TV Guide.",
+      "Search no longer lags while you type.",
+      "New backups need a passphrase of at least 10 characters. A short sentence works well. Older backups still restore.",
+      "The setup and diagnostics QR codes now refresh by themselves after 10 minutes without use.",
+      "Everything else works as before."
+    ]
+  },
+  {
     "version": "2.7.1",
     "date": "2026-10-31",
     "title": "A black squirrel on Sparky's TV",
