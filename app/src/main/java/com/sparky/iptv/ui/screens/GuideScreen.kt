@@ -88,13 +88,15 @@ private fun GroupPicker(vm: AppViewModel, onDone: () -> Unit) {
     BackHandler { onDone() }
     val groups = liveGroups(vm)
     val keys = remember(groups) { stableKeys(groups) { it.id } }
-    val selIndex = groups.indexOfFirst { it.id == vm.liveGroup }.coerceAtLeast(0)
+    // The selected group, or its region heading when that region is closed.
+    val selIndex = groups.indexOfFirst { it.id == vm.liveGroup }.takeIf { it >= 0 }
+        ?: groups.indexOfFirst { it.id == "hdr:${vm.regionOfGroup(vm.liveGroup)}" }.coerceAtLeast(0)
     val state = rememberLazyListState(initialFirstVisibleItemIndex = (selIndex - 4).coerceAtLeast(0))
-    // ▲ / ▼ move between groups (and the "Show all regions" action), skipping region headings.
+    // ▲ / ▼ move row by row: region headings (which open and close), groups and the "Show all regions" action.
     val nav = rememberListNav(state, "Group picker", rowHeight = 50.u)
     fun move(i: Int, down: Boolean) = nav.step(
         from = i, down = down, size = groups.size,
-        focusable = { groups[it].kind != GroupKind.HEADER },
+        focusable = { true },
         keyAt = { keys[it] },
         describe = { k -> groups.getOrNull(keys.indexOf(k))?.name ?: "none" },
     )
@@ -105,14 +107,21 @@ private fun GroupPicker(vm: AppViewModel, onDone: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.u),
         ) {
             T("Choose a group", size = 22, weight = FontWeight.Bold)
-            T("${groups.count { it.kind == GroupKind.GROUP } - 3} groups · Back to close", size = 13, color = C.Dim)
+            T("${groups.count { it.kind == GroupKind.GROUP && !it.indent } - 3} groups · OK on a region opens or closes it · Back to close", size = 13, color = C.Dim)
             LazyColumn(state = state, verticalArrangement = Arrangement.spacedBy(4.u), contentPadding = PaddingValues(bottom = 24.u)) {
                 itemsIndexed(groups, key = { idx, _ -> keys[idx] }) { i, g ->
+                    val key = keys[i]
                     if (g.kind == GroupKind.HEADER) {
-                        Label(g.name, color = C.Text2, modifier = Modifier.padding(start = 14.u, top = 16.u, bottom = 4.u))
+                        RegionHeading(
+                            g,
+                            selected = !g.open && vm.regionOfGroup(vm.liveGroup) == g.region,
+                            onFocus = { nav.focusedKey = key },
+                            onToggle = { g.region?.let { vm.toggleRegionOpen(it) } },
+                            onRight = { if (!g.open) g.region?.let { vm.toggleRegionOpen(it) }; true },
+                            modifier = Modifier.padding(top = 10.u).focusRequester(nav.requester(key)).verticalKeys { down -> move(i, down) },
+                        )
                         return@itemsIndexed
                     }
-                    val key = keys[i]
                     val rowMod = Modifier.fillMaxWidth().height(46.u)
                         .focusRequester(nav.requester(key))
                         .verticalKeys { down -> move(i, down) }
@@ -135,7 +144,7 @@ private fun GroupPicker(vm: AppViewModel, onDone: () -> Unit) {
                         onFocus = { nav.focusedKey = key },
                         selected = isSel,
                         shape = RoundedCornerShape(10.u),
-                        modifier = rowMod,
+                        modifier = rowMod.padding(start = if (g.indent) 14.u else 0.u),
                     ) { f ->
                         Row(Modifier.fillMaxSize().padding(horizontal = 14.u), verticalAlignment = Alignment.CenterVertically) {
                             T(
@@ -156,7 +165,7 @@ private fun GroupPicker(vm: AppViewModel, onDone: () -> Unit) {
 private fun GuideContent(vm: AppViewModel, onPickGroup: () -> Unit) {
     val groups = liveGroups(vm)
     val group = vm.liveGroup
-    val channels = remember(vm.library, vm.favorites, group) { vm.channelsFor(group) }
+    val channels = remember(vm.library, vm.favorites, vm.favOrder, vm.folders, group) { vm.channelsFor(group) }
     val now = rememberNow()
     // Window position in half-hour steps back from the current half hour (0 = now; negative = the past).
     var slots by remember { mutableIntStateOf(0) }

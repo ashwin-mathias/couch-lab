@@ -462,7 +462,7 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
                         AKey.KEYCODE_DPAD_CENTER, AKey.KEYCODE_ENTER, AKey.KEYCODE_NUMPAD_ENTER -> {
                             val held = ne.eventTime - ne.downTime
                             when {
-                                held > 600 -> vm.toggleFavorite(ch.favKey, ch.display)   // hold OK = favourite
+                                held > 600 -> vm.holdFavoriteNow(ch.favKey, ch.display)   // hold OK = favourite (menu if it is one)
                                 behind && barVisible && onButtons -> { buttons.getOrNull(button)?.let { press(it) }; showBar() }
                                 else -> { togglePause(); showBar(false) }                // OK = pause / play
                             }

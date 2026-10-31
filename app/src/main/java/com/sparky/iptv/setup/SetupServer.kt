@@ -24,7 +24,14 @@ class SetupServer(
     /** One-time key that must be in the address (?k=…). Only the QR code on the TV carries it. */
     val token: String,
     private val onSubmit: (Playlist) -> String?,
+    /** Handles a backup upload from the restore page; returns the JSON answer. */
+    private val onRestore: (body: String, token: String, lock: () -> Unit) -> String,
+    /** A note for the login form after a backup without a login was uploaded. */
+    private val restoredNote: () -> String?,
+    /** True when the TV already has a login (Change login): the restore page offers Add or Replace. */
+    private val existing: Boolean,
 ) : NanoHTTPD(port) {
+    @Volatile private var locked = false
 
     override fun serve(session: IHTTPSession): Response {
         val key = session.parameters["k"]?.firstOrNull()
@@ -34,7 +41,22 @@ class SetupServer(
                 "Scan the QR code on your TV to open this page.",
             )
         }
+        if (locked) {
+            return newFixedLengthResponse(
+                Response.Status.FORBIDDEN, "text/plain; charset=utf-8",
+                "Open the setup screen on your TV again and scan the new QR code.",
+            )
+        }
         return try {
+            if (session.uri.startsWith("/restore")) {
+                if (session.method == Method.POST) {
+                    val files = HashMap<String, String>()
+                    session.parseBody(files)
+                    return newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8",
+                        onRestore(files["postData"] ?: "", token) { locked = true })
+                }
+                return html(PhonePages.restore(deviceName, token, existing))
+            }
             if (session.method == Method.POST && session.uri.startsWith("/save")) {
                 session.parseBody(HashMap())
                 @Suppress("DEPRECATION")
@@ -55,7 +77,8 @@ class SetupServer(
                 val err = missing ?: onSubmit(p)
                 if (err == null) html(SetupPage.done(deviceName)) else html(SetupPage.form(deviceName, token, p, err))
             } else {
-                html(SetupPage.form(deviceName, token, null, null))
+                val note = if (session.parameters["restored"] != null) restoredNote() else null
+                html(SetupPage.form(deviceName, token, null, null, note))
             }
         } catch (e: Exception) {
             html(SetupPage.form(deviceName, token, null, "Something went wrong: ${e.message}"))
@@ -67,9 +90,15 @@ class SetupServer(
 
     companion object {
         /** Starts on the first free port from 8080. Returns null if none could be opened. */
-        fun startOnFreePort(deviceName: String, onSubmit: (Playlist) -> String?): SetupServer? {
+        fun startOnFreePort(
+            deviceName: String,
+            existing: Boolean,
+            onRestore: (String, String, () -> Unit) -> String,
+            restoredNote: () -> String?,
+            onSubmit: (Playlist) -> String?,
+        ): SetupServer? {
             for (port in 8080..8090) {
-                val s = SetupServer(port, deviceName, SecretBox.newToken(), onSubmit)
+                val s = SetupServer(port, deviceName, SecretBox.newToken(), onSubmit, onRestore, restoredNote, existing)
                 try {
                     s.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
                     return s

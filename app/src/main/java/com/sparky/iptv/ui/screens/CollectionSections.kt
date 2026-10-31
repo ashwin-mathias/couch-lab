@@ -36,6 +36,9 @@ import com.sparky.iptv.data.Channel
 import com.sparky.iptv.data.Names
 import com.sparky.iptv.ui.AppViewModel
 import com.sparky.iptv.ui.Screen
+import com.sparky.iptv.ui.LIST_LIVE
+import com.sparky.iptv.ui.LIST_MOVIE
+import com.sparky.iptv.ui.LIST_SERIES
 import com.sparky.iptv.ui.components.Badge
 import com.sparky.iptv.ui.components.C
 import com.sparky.iptv.ui.components.ChannelLogo
@@ -79,13 +82,16 @@ private fun PageHeader(title: String, subtitle: String, tiles: Boolean, onToggle
 
 /** One channel as a list row (used when the page is in list view). */
 @Composable
-private fun ChannelRow(vm: AppViewModel, ch: Channel, now: Long, onClick: () -> Unit, modifier: Modifier = Modifier, onFocus: () -> Unit = {}) {
+private fun ChannelRow(
+    vm: AppViewModel, ch: Channel, now: Long, onClick: () -> Unit, modifier: Modifier = Modifier, onFocus: () -> Unit = {},
+    onLongClick: () -> Unit = { vm.holdFavorite(ch.favKey, ch.display) },
+) {
     LaunchedEffect(ch.id) { vm.ensureEpg(ch) }
     val (cur, _) = vm.nowNext(ch.id, now)
     val (badge, title) = Names.event(ch.display)
     FocusItem(
         onClick = onClick,
-        onLongClick = { vm.toggleFavorite(ch.favKey, ch.display) },
+        onLongClick = onLongClick,
         onFocus = onFocus,
         container = C.Panel,
         modifier = modifier.fillMaxWidth().height(64.u),
@@ -127,33 +133,39 @@ private fun WithPreview(vm: AppViewModel, focused: Channel?, fallback: Channel?,
 private fun startIndex(vm: AppViewModel, ids: List<String?>): Int =
     ids.indexOf(vm.prefs.lastChannel).takeIf { it >= 0 } ?: 0
 
-/** Favorites: channels (tiles or list), then movies and series. */
+/** Favorites: channels (tiles or list), then movies and series, each in your order. */
 @Composable
 fun FavoritesSection(vm: AppViewModel) {
     val now = rememberNow()
     val tiles = vm.isTiles(KEY_FAV_PAGE)
-    val chans = remember(vm.library, vm.favorites) { vm.library.channels.filter { it.favKey in vm.favorites } }
-    val movies = remember(vm.library, vm.favorites) { vm.library.movies.filter { it.favKey in vm.favorites } }
-    val series = remember(vm.library, vm.favorites) { vm.library.series.filter { it.favKey in vm.favorites } }
+    val chans = remember(vm.library, vm.favorites, vm.favOrder, vm.moving) { vm.favChannels() }
+    val movies = remember(vm.library, vm.favorites, vm.favOrder, vm.moving) { vm.favMovies() }
+    val series = remember(vm.library, vm.favorites, vm.favOrder, vm.moving) { vm.favSeries() }
     val toggleFocus = remember { FocusRequester() }
     val first = remember { FocusRequester() }
     var focused by remember { mutableStateOf<Channel?>(null) }
-    val start = remember(chans) { startIndex(vm, chans.map { it.id }) }
+    val start = remember(chans.size) { startIndex(vm, chans.map { it.id }) }
     LaunchedEffect(tiles) {
         delay(150)
         runCatching { first.requestFocus() }.onFailure { runCatching { toggleFocus.requestFocus() } }
     }
+    val gridState = rememberLazyGridState(initialFirstVisibleItemIndex = start)
+    val rowState = androidx.compose.foundation.lazy.rememberLazyListState()
+    FollowMoveGrid(vm, LIST_LIVE, gridState) { k -> chans.indexOfFirst { it.favKey == k }.let { if (it < 0) -1 else it + 2 } }
+    FollowMove(vm, LIST_MOVIE, rowState) { k -> movies.indexOfFirst { it.favKey == k } }
+    FollowMove(vm, LIST_SERIES, rowState) { k -> series.indexOfFirst { it.favKey == k }.let { if (it < 0) -1 else movies.size + it } }
+    val cols = if (tiles) 3 else 1
     WithPreview(vm, focused, chans.getOrNull(start)) {
     LazyVerticalGrid(
-        columns = GridCells.Fixed(if (tiles) 3 else 1),
+        columns = GridCells.Fixed(cols),
         modifier = Modifier.fillMaxSize(),
-        state = rememberLazyGridState(initialFirstVisibleItemIndex = start),
+        state = gridState,
         contentPadding = PaddingValues(start = 40.u, end = 28.u, top = 32.u, bottom = 48.u),
         horizontalArrangement = Arrangement.spacedBy(if (tiles) 18.u else 0.u),
         verticalArrangement = Arrangement.spacedBy(if (tiles) 22.u else 6.u),
     ) {
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            PageHeader("Favorites", "${chans.size} channels · ${movies.size} movies · ${series.size} series · Hold OK to remove",
+        item(span = { GridItemSpan(maxLineSpan) }, key = "header") {
+            PageHeader("Favorites", "${chans.size} channels · ${movies.size} movies · ${series.size} series · Hold OK to move, sort into folders or remove",
                 tiles, { vm.setTiles(KEY_FAV_PAGE, !tiles) }, toggleFocus)
         }
         if (chans.isEmpty() && movies.isEmpty() && series.isEmpty()) {
@@ -162,30 +174,35 @@ fun FavoritesSection(vm: AppViewModel) {
             }
         }
         if (chans.isNotEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) { Label("Channels", color = C.Muted, modifier = Modifier.padding(top = 8.u)) }
-            itemsIndexed(chans, key = { idx, c -> "$idx:" + ("c" + c.id) }) { i, ch ->
-                val m = if (i == start) Modifier.focusRequester(first) else Modifier
+            item(span = { GridItemSpan(maxLineSpan) }, key = "label-ch") { Label("Channels", color = C.Muted, modifier = Modifier.padding(top = 8.u)) }
+            itemsIndexed(chans, key = { _, c -> c.favKey }) { i, ch ->
+                val m = (if (i == start) Modifier.focusRequester(first) else Modifier).movingOutline(vm.moving?.key == ch.favKey)
+                val hold = { vm.holdFavorite(ch.favKey, ch.display, LIST_LIVE, upDown = cols, leftRight = if (tiles) 1 else 0) }
                 if (tiles) ChannelTile(vm, ch, now, width = null, onClick = { vm.playLive(chans, i) },
-                    modifier = m.onFocusChanged { if (it.hasFocus) focused = ch })
-                else ChannelRow(vm, ch, now, onClick = { vm.playLive(chans, i) }, modifier = m, onFocus = { focused = ch })
+                    modifier = m.onFocusChanged { if (it.hasFocus) focused = ch }, onLongClick = hold)
+                else ChannelRow(vm, ch, now, onClick = { vm.playLive(chans, i) }, modifier = m, onFocus = { focused = ch }, onLongClick = hold)
             }
         }
         if (movies.isNotEmpty() || series.isNotEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) { Label("Movies & series", color = C.Muted, modifier = Modifier.padding(top = 12.u)) }
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(20.u)) {
-                    items(movies.size, key = { "$it:" + ("m" + movies[it].id) }) { i ->
+            item(span = { GridItemSpan(maxLineSpan) }, key = "label-vod") { Label("Movies & series", color = C.Muted, modifier = Modifier.padding(top = 12.u)) }
+            item(span = { GridItemSpan(maxLineSpan) }, key = "row-vod") {
+                androidx.compose.foundation.lazy.LazyRow(state = rowState, horizontalArrangement = Arrangement.spacedBy(20.u)) {
+                    items(movies.size, key = { movies[it].favKey }) { i ->
                         val mv = movies[i]
-                        PosterCard(mv.name, mv.poster, 132.u, true,
-                            progress = vm.progress(mv.progressKey)?.fraction,
-                            onClick = { vm.push(Screen.MovieDetail(mv)) },
-                            onLongClick = { vm.toggleFavorite(mv.favKey, mv.name) })
+                        Box(Modifier.movingOutline(vm.moving?.key == mv.favKey)) {
+                            PosterCard(mv.name, mv.poster, 132.u, true,
+                                progress = vm.progress(mv.progressKey)?.fraction,
+                                onClick = { vm.push(Screen.MovieDetail(mv)) },
+                                onLongClick = { vm.holdFavorite(mv.favKey, mv.name, LIST_MOVIE, upDown = 0, leftRight = 1) })
+                        }
                     }
-                    items(series.size, key = { "$it:" + ("s" + series[it].id) }) { i ->
+                    items(series.size, key = { series[it].favKey }) { i ->
                         val sr = series[i]
-                        PosterCard(sr.name, sr.cover, 132.u, true,
-                            onClick = { vm.push(Screen.SeriesDetail(sr)) },
-                            onLongClick = { vm.toggleFavorite(sr.favKey, sr.name) })
+                        Box(Modifier.movingOutline(vm.moving?.key == sr.favKey)) {
+                            PosterCard(sr.name, sr.cover, 132.u, true,
+                                onClick = { vm.push(Screen.SeriesDetail(sr)) },
+                                onLongClick = { vm.holdFavorite(sr.favKey, sr.name, LIST_SERIES, upDown = 0, leftRight = 1) })
+                        }
                     }
                 }
             }
@@ -241,13 +258,13 @@ fun RecentSection(vm: AppViewModel) {
                     tiles, m, e.movie.name, e.movie.poster, "Movie", vm.progress(e.movie.progressKey)?.fraction,
                     fav = e.movie.favKey in vm.favorites,
                     onClick = { vm.push(Screen.MovieDetail(e.movie)) },
-                    onLongClick = { vm.toggleFavorite(e.movie.favKey, e.movie.name) },
+                    onLongClick = { vm.holdFavorite(e.movie.favKey, e.movie.name) },
                 )
                 is AppViewModel.RecentEntry.Sr -> RecentVodItem(
                     tiles, m, e.series.name, e.series.cover, "Series", null,
                     fav = e.series.favKey in vm.favorites,
                     onClick = { vm.push(Screen.SeriesDetail(e.series)) },
-                    onLongClick = { vm.toggleFavorite(e.series.favKey, e.series.name) },
+                    onLongClick = { vm.holdFavorite(e.series.favKey, e.series.name) },
                 )
             }
         }

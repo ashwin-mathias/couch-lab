@@ -5,11 +5,11 @@ import com.sparky.iptv.data.Playlist
 /** The phone-side web page, styled to match the TV app. */
 object SetupPage {
 
-    private fun esc(s: String?): String = (s ?: "")
+    internal fun esc(s: String?): String = (s ?: "")
         .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         .replace("\"", "&quot;").replace("'", "&#39;")
 
-    private const val STYLE = """
+    internal const val STYLE = """
 <style>
   *{box-sizing:border-box}
   body{margin:0;background:#0E0F11;color:#EEEBE5;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,sans-serif;-webkit-font-smoothing:antialiased}
@@ -38,18 +38,19 @@ object SetupPage {
   .tick{width:64px;height:64px;border-radius:50%;border:2px solid #9DB89A;margin:0 auto 20px;display:flex;align-items:center;justify-content:center;color:#9DB89A;font-size:30px}
 </style>"""
 
-    private fun head(title: String) = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+    internal fun head(title: String) = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>$title</title>$STYLE</head><body><main>"""
 
-    private fun topBar(device: String) =
+    internal fun topBar(device: String) =
         """<div class="top">Sparky IPTV<span class="dev"><span class="dot"></span>${esc(device)}</span></div>"""
 
-    fun form(device: String, token: String, prev: Playlist?, error: String?): String {
+    fun form(device: String, token: String, prev: Playlist?, error: String?, note: String? = null): String {
         val isM3u = prev?.type == "m3u"
         return head("Connect your TV") + topBar(device) + """
 <h1>Connect your TV</h1>
 <p class="lead">Enter the login from your provider. It goes straight to your TV over your home Wi-Fi.</p>
+${if (note != null) "<div class=\"err\" style=\"background:#17221A;border-color:#3B5A3E;color:#C9E3C6;margin:0 0 20px\">${esc(note)}</div>" else ""}
 <div class="tabs">
   <button type="button" id="tx" class="${if (isM3u) "" else "on"}" onclick="pick('xtream')">Login</button>
   <button type="button" id="tm" class="${if (isM3u) "on" else ""}" onclick="pick('m3u')">M3U link</button>
@@ -74,6 +75,7 @@ object SetupPage {
   <button class="send" id="go" type="submit">Send to TV</button>
   <p class="note">Your login is only sent to your TV on this Wi-Fi network.</p>
 </form>
+<p class="note" style="margin-top:28px"><a href="/restore?k=${esc(token)}" style="color:#EEEBE5;font-weight:600">Restore from a backup file</a></p>
 <script>
 function pick(t){document.getElementById('type').value=t;
 document.getElementById('xf').className=t==='m3u'?'hide':'';

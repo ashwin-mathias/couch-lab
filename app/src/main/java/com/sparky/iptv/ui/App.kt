@@ -56,6 +56,11 @@ import com.sparky.iptv.ui.screens.SeriesScreen
 import com.sparky.iptv.ui.screens.SettingsScreen
 import com.sparky.iptv.ui.screens.SetupScreen
 import com.sparky.iptv.ui.screens.SubtitleStyleScreen
+import com.sparky.iptv.ui.screens.FavFoldersScreen
+import com.sparky.iptv.ui.screens.BackupScreen
+import com.sparky.iptv.ui.screens.MoveHint
+import com.sparky.iptv.ui.screens.FavMenuDialog
+import com.sparky.iptv.ui.screens.FolderPickerDialog
 
 @Composable
 fun App(vm: AppViewModel) {
@@ -68,11 +73,16 @@ fun App(vm: AppViewModel) {
                 Screen.About -> AboutScreen(vm)
                 Screen.Diagnostics -> DiagnosticsScreen(vm)
                 Screen.SubtitleStyle -> SubtitleStyleScreen(vm)
+                Screen.FavFolders -> FavFoldersScreen(vm)
+                is Screen.BackupRestore -> BackupScreen(vm, s.restore)
                 is Screen.Regions -> RegionsScreen(vm, s.firstRun)
                 is Screen.MovieDetail -> MovieDetailScreen(vm, s.movie)
                 is Screen.SeriesDetail -> SeriesDetailScreen(vm, s.series)
                 is Screen.Player -> PlayerScreen(vm, s.request)
             }
+            MoveHint(vm, Modifier.align(Alignment.TopCenter).padding(top = 20.u))
+            vm.favMenu?.let { FavMenuDialog(vm, it) }
+            vm.folderPicker?.let { FolderPickerDialog(vm, it) }
             Toast(
                 text = vm.toast,
                 // The sleep warning stays up for most of its last minute.
