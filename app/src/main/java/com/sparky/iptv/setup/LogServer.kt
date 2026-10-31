@@ -4,18 +4,19 @@ import com.sparky.iptv.data.AppLog
 import com.sparky.iptv.data.SecretBox
 import fi.iki.elonen.NanoHTTPD
 
-/** Serves the activity log to a phone on the same Wi-Fi while the Diagnostics page is open. */
-class LogServer(port: Int, val token: String, private val header: () -> String) : NanoHTTPD(port) {
+/**
+ * Serves the activity log to a phone on the same Wi-Fi while the Diagnostics page is open, on a
+ * [PhoneServer] (8091–8099). The key works for 10 minutes after the last request.
+ */
+object LogServer {
+    const val IDLE_MS = 10 * 60_000L
 
     private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-    override fun serve(session: IHTTPSession): Response {
-        if (!SecretBox.same(session.parameters["k"]?.firstOrNull(), token)) {
-            return newFixedLengthResponse(
-                Response.Status.FORBIDDEN, "text/plain; charset=utf-8",
-                "Scan the QR code on your TV to open this page.",
-            )
-        }
+    fun startOnFreePort(header: () -> String): PhoneServer? =
+        PhoneServer.start(PhoneServer.LOG_PORTS, IDLE_MS, sliding = true) { html(page(header())) }
+
+    private fun page(headerText: String): String {
         val crash = AppLog.lastCrash()
         val body = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -53,26 +54,12 @@ function copyAll(btn){
 }
 </script>
 <div id="all">
-<pre>${esc(header())}</pre>
+<pre>${esc(headerText)}</pre>
 ${if (crash != null) "<h2>Last crash</h2><pre class=\"crash\">${esc(crash)}</pre>" else ""}
 <h2>Activity log</h2>
 <pre>${esc(AppLog.text())}</pre>
 </div>
 </main></body></html>"""
-        return newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", body)
-    }
-
-    companion object {
-        fun startOnFreePort(header: () -> String): LogServer? {
-            for (port in 8091..8099) {
-                val s = LogServer(port, SecretBox.newToken(), header)
-                try {
-                    s.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
-                    return s
-                } catch (_: Exception) {
-                }
-            }
-            return null
-        }
+        return body
     }
 }

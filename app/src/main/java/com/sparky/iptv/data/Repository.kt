@@ -24,12 +24,9 @@ fun interface LoadListener {
 
 class Repository(private val ctx: Context, val prefs: Prefs) {
 
-    val http: OkHttpClient = OkHttpClient.Builder()
+    val http: OkHttpClient = Http.base.newBuilder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
-        .followRedirects(true)
-        .followSslRedirects(true)
-        .retryOnConnectionFailure(true)
         .build()
 
     private fun cacheFile(name: String) = File(ctx.filesDir, "cache_$name.json")

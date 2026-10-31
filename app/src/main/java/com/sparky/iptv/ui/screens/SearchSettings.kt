@@ -59,23 +59,46 @@ import com.sparky.iptv.ui.components.fmtDate
 import com.sparky.iptv.ui.components.su
 import com.sparky.iptv.ui.components.u
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+/** One search's matches, tagged with the query they belong to. */
+private class SearchResults(
+    val channels: List<com.sparky.iptv.data.Channel>,
+    val movies: List<com.sparky.iptv.data.Movie>,
+    val series: List<com.sparky.iptv.data.Series>,
+    val query: String,
+) {
+    companion object { val EMPTY = SearchResults(emptyList(), emptyList(), emptyList(), "") }
+}
 
 @Composable
 fun SearchScreen(vm: AppViewModel) {
     val q = vm.searchQuery.trim()
     val lib = vm.library
-    // Search only your regions (favorites are always included).
-    val chans = remember(lib, q, vm.myRegions) {
-        if (q.length < 2) emptyList() else lib.channels.asSequence()
-            .filter { !it.divider && it.name.contains(q, true) && (it.favKey in vm.favorites || vm.regionVisible(vm.index.regionOfChannel(it))) }
-            .take(40).toList()
+    // Search only your regions (favorites are always included). It runs off the UI thread, 250 ms
+    // after the last key, so typing stays smooth on large catalogs (2.8).
+    var results by remember { mutableStateOf(SearchResults.EMPTY) }
+    LaunchedEffect(lib, q, vm.myRegions, vm.showAllRegions) {
+        if (q.length < 2) { results = SearchResults.EMPTY; return@LaunchedEffect }
+        delay(250)
+        val favs = vm.favorites
+        val index = vm.index
+        results = withContext(Dispatchers.Default) {
+            SearchResults(
+                lib.channels.asSequence()
+                    .filter { !it.divider && it.name.contains(q, true) && (it.favKey in favs || vm.regionVisible(index.regionOfChannel(it))) }
+                    .take(40).toList(),
+                lib.movies.asSequence().filter { it.name.contains(q, true) && vm.movieVisible(it) }.take(40).toList(),
+                lib.series.asSequence().filter { it.name.contains(q, true) && vm.seriesVisible(it) }.take(40).toList(),
+                q,
+            )
+        }
     }
-    val movies = remember(lib, q, vm.myRegions) {
-        if (q.length < 2) emptyList() else lib.movies.asSequence().filter { it.name.contains(q, true) && vm.movieVisible(it) }.take(40).toList()
-    }
-    val series = remember(lib, q, vm.myRegions) {
-        if (q.length < 2) emptyList() else lib.series.asSequence().filter { it.name.contains(q, true) && vm.seriesVisible(it) }.take(40).toList()
-    }
+    val current = results.takeIf { it.query == q } ?: SearchResults.EMPTY
+    val chans = current.channels
+    val movies = current.movies
+    val series = current.series
     val fieldFocus = remember { FocusRequester() }
     var fieldFocused by remember { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -118,7 +141,8 @@ fun SearchScreen(vm: AppViewModel) {
                     }
                 }
                 if (q.length < 2) T("Press OK to type. Results appear as you type.", size = 14, color = C.Dim)
-                else if (chans.isEmpty() && movies.isEmpty() && series.isEmpty()) T("No matches for “$q”.", size = 15, color = C.Muted)
+                // "No matches" only once this query has finished, not while it's still running.
+                else if (results.query == q && chans.isEmpty() && movies.isEmpty() && series.isEmpty()) T("No matches for “$q”.", size = 15, color = C.Muted)
             }
         }
         if (chans.isNotEmpty()) item {

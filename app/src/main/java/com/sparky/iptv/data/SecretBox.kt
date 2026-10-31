@@ -19,7 +19,12 @@ object SecretBox {
     private const val PROVIDER = "AndroidKeyStore"
     private const val PREFIX = "v1:"
 
-    private fun key(): SecretKey {
+    @Volatile private var cachedKey: SecretKey? = null
+
+    /** The Keystore key, looked up once per run (each lookup is a call into the Keystore service). */
+    private fun key(): SecretKey = cachedKey ?: loadKey().also { cachedKey = it }
+
+    private fun loadKey(): SecretKey {
         val ks = KeyStore.getInstance(PROVIDER).apply { load(null) }
         (ks.getKey(ALIAS, null) as? SecretKey)?.let { return it }
         val gen = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, PROVIDER)

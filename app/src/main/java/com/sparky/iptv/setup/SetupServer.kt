@@ -15,52 +15,30 @@ import java.net.Inet4Address
 import java.net.NetworkInterface
 
 /**
- * Tiny web server the phone talks to during setup. It serves the login form and
- * hands the submitted login to [onSubmit], which returns null on success or an error message.
+ * The setup pages the phone talks to: the login form and "Restore from a backup file". Runs on a
+ * [PhoneServer] (8080–8090). [onSubmit] returns null on success or an error message.
  */
-class SetupServer(
-    port: Int,
-    private val deviceName: String,
-    /** One-time key that must be in the address (?k=…). Only the QR code on the TV carries it. */
-    val token: String,
-    private val onSubmit: (Playlist) -> String?,
-    /** Handles a backup upload from the restore page; returns the JSON answer. */
-    private val onRestore: (body: String, token: String, lock: () -> Unit) -> String,
-    /** A note for the login form after a backup without a login was uploaded. */
-    private val restoredNote: () -> String?,
-    /** True when the TV already has a login (Change login): the restore page offers Add or Replace. */
-    private val existing: Boolean,
-) : NanoHTTPD(port) {
-    @Volatile private var locked = false
+object SetupServer {
+    /** The key works for 10 minutes after the last request; the Setup screen then shows a new QR code. */
+    const val IDLE_MS = 10 * 60_000L
 
-    override fun serve(session: IHTTPSession): Response {
-        val key = session.parameters["k"]?.firstOrNull()
-        if (!SecretBox.same(key, token)) {
-            return newFixedLengthResponse(
-                Response.Status.FORBIDDEN, "text/plain; charset=utf-8",
-                "Scan the QR code on your TV to open this page.",
-            )
-        }
-        if (locked) {
-            return newFixedLengthResponse(
-                Response.Status.FORBIDDEN, "text/plain; charset=utf-8",
-                "Open the setup screen on your TV again and scan the new QR code.",
-            )
-        }
-        return try {
+    fun startOnFreePort(
+        deviceName: String,
+        /** True when the TV already has a login (Change login): the restore page offers Add or Replace. */
+        existing: Boolean,
+        /** Handles a backup upload from the restore page; returns the JSON answer. */
+        onRestore: (body: String, token: String, lock: () -> Unit) -> String,
+        /** A note for the login form after a backup without a login was uploaded. */
+        restoredNote: () -> String?,
+        onSubmit: (Playlist) -> String?,
+    ): PhoneServer? = PhoneServer.start(PhoneServer.SETUP_PORTS, IDLE_MS, sliding = true) { session ->
+        try {
             if (session.uri.startsWith("/restore")) {
-                if (session.method == Method.POST) {
-                    val files = HashMap<String, String>()
-                    session.parseBody(files)
-                    return newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8",
-                        onRestore(files["postData"] ?: "", token) { locked = true })
-                }
-                return html(PhonePages.restore(deviceName, token, existing))
+                return@start if (session.method == NanoHTTPD.Method.POST) json(onRestore(body(session), token) { lock() })
+                else html(PhonePages.restore(deviceName, token, existing))
             }
-            if (session.method == Method.POST && session.uri.startsWith("/save")) {
-                session.parseBody(HashMap())
-                @Suppress("DEPRECATION")
-                val f = session.parms
+            if (session.method == NanoHTTPD.Method.POST && session.uri.startsWith("/save")) {
+                val f = form(session)
                 val type = if (f["type"] == "m3u") "m3u" else "xtream"
                 val p = Playlist(
                     type = type,
@@ -82,31 +60,6 @@ class SetupServer(
             }
         } catch (e: Exception) {
             html(SetupPage.form(deviceName, token, null, "Something went wrong: ${e.message}"))
-        }
-    }
-
-    private fun html(body: String): Response =
-        newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", body)
-
-    companion object {
-        /** Starts on the first free port from 8080. Returns null if none could be opened. */
-        fun startOnFreePort(
-            deviceName: String,
-            existing: Boolean,
-            onRestore: (String, String, () -> Unit) -> String,
-            restoredNote: () -> String?,
-            onSubmit: (Playlist) -> String?,
-        ): SetupServer? {
-            for (port in 8080..8090) {
-                val s = SetupServer(port, deviceName, SecretBox.newToken(), onSubmit, onRestore, restoredNote, existing)
-                try {
-                    s.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
-                    return s
-                } catch (_: Exception) {
-                    // port busy, try the next one
-                }
-            }
-            return null
         }
     }
 }

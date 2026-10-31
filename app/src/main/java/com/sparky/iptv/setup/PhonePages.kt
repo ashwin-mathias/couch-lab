@@ -44,10 +44,10 @@ object PhonePages {
   <label class="chk"><input type="checkbox" name="history" checked><span>Watch history<small>Resume points and recently watched</small></span></label>
   <div id="pwf">
     <label for="p1">Passphrase</label>
-    <input id="p1" name="pass" type="password" minlength="6" autocomplete="new-password" placeholder="At least 6 characters">
+    <input id="p1" name="pass" type="password" minlength="10" autocomplete="new-password" placeholder="At least 10 characters">
     <label for="p2">Repeat passphrase</label>
     <input id="p2" name="pass2" type="password" autocomplete="new-password">
-    <p class="note" style="text-align:left">You'll need this to restore. It can't be recovered.</p>
+    <p class="note" style="text-align:left">At least 10 characters; a short sentence is easy to remember. You'll need it to restore, and it can't be recovered.</p>
   </div>
   <div id="e" class="${if (error == null) "hide" else "err"}">${esc(error)}</div>
   <button class="send" type="submit">Download backup</button>
@@ -59,7 +59,7 @@ function err(t){var e=document.getElementById('e');e.className='err';e.textConte
 function check(){
   if(!document.getElementById('login').checked)return true;
   var a=document.getElementById('p1').value,b=document.getElementById('p2').value;
-  if(a.length<6)return err('Use at least 6 characters for the passphrase.');
+  if(a.length<10)return err('Use at least 10 characters for the passphrase. A short sentence works well.');
   if(a!==b)return err("The passphrases don't match.");
   return true;
 }

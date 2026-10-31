@@ -1,0 +1,23 @@
+name: Compile check (temporary)
+on:
+  push:
+    branches: [ 'wip-**' ]
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build release (unsigned)
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleRelease 2>&1 | tee build.log; status=${PIPESTATUS[0]}
+          if [ $status -ne 0 ]; then
+            grep -E "^e: |What went wrong|ERROR:|Missing class" -A2 build.log | head -60 | while IFS= read -r line; do echo "::error::$line"; done
+            exit $status
+          fi
+          ls -l app/build/outputs/apk/release/ | while IFS= read -r line; do echo "::notice::$line"; done
