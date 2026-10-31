@@ -52,4 +52,4 @@ Full specification, design system, architecture, test checklist and a rebuild pr
 
 GitHub Actions builds it automatically (`.github/workflows/build.yml`). Locally: `./gradlew assembleRelease` with JDK 17 and the Android SDK.
 
-The signing key in `keystore/` is only used so updates install over the previous version.
+The signing key is stored in GitHub Actions secrets (not in the repo) and is only used so updates install over the previous version.

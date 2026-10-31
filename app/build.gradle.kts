@@ -21,22 +21,26 @@ android {
         versionName = "$appVersion (build $buildNumber)"
     }
 
-    signingConfigs {
-        create("sparky") {
-            storeFile = rootProject.file("keystore/sparky.jks")
-            storePassword = "sparkyiptv"
-            keyAlias = "sparky"
-            keyPassword = "sparkyiptv"
+    // The signing key lives in GitHub Actions secrets (never in the repo). Without them the build is unsigned.
+    val keystorePath = System.getenv("KEYSTORE_PATH")
+    if (!keystorePath.isNullOrBlank()) {
+        signingConfigs {
+            create("sparky") {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
         }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("sparky")
+            signingConfigs.findByName("sparky")?.let { signingConfig = it }
         }
         debug {
-            signingConfig = signingConfigs.getByName("sparky")
+            signingConfigs.findByName("sparky")?.let { signingConfig = it }
         }
     }
 

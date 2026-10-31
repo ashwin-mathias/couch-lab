@@ -79,7 +79,7 @@ ui/
 assets/  changelog.json, about.json
 res/     drawable/*.xml icons, drawable-nodpi/{logo,avatar}.png + sparky.jpg, drawable-xhdpi/banner.png, mipmap-*/ic_launcher.png,
          font/inter_*.otf, values/{strings,themes}.xml, xml/file_paths.xml
-keystore/sparky.jks      signing key (password "sparkyiptv", alias "sparky") — must be reused so updates install
+(no keystore in the repo)  the signing key is in GitHub Actions secrets (see §9) — it must be reused so updates install
 ```
 
 **Name clash rule:** the theme object is `C`, and Media3 also has `androidx.media3.common.C`. In UI files that need both, import Media3's as `import androidx.media3.common.C as MediaC`. This clash broke the 2.2 build.
@@ -217,9 +217,9 @@ BackHandler(enabled = panelOpen) { panelOpen = false }   // registered last = hi
 ## 9. Build, release, install
 
 - **GitHub Actions** (`.github/workflows/build.yml`) runs on every push to `main` (doc-only pushes are ignored) and on manual dispatch:
-  1. Checkout, then setup-java temurin 17, then setup-gradle.
+  1. Checkout, then setup-java temurin 17, then setup-gradle, then restore the signing key from secrets.
   2. `./gradlew --no-daemon assembleRelease`. On failure, the `e: ` and "What went wrong" lines are re-emitted as `::error::` annotations, because raw logs can't be downloaded without auth.
   3. Copy to `sparky-iptv.apk` and publish a GitHub release `build-<run_number>` marked latest. Also upload it as an artifact.
-- `versionCode = GITHUB_RUN_NUMBER`; `versionName = "<appVersion> (build N)"`. The release is signed with `keystore/sparky.jks` (debug builds too), so each build installs over the last.
+- `versionCode = GITHUB_RUN_NUMBER`; `versionName = "<appVersion> (build N)"`. The release is signed with the key from the GitHub Actions secrets `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` (debug builds too), so each build installs over the last. The workflow decodes the key to `$RUNNER_TEMP/release.jks` and passes `KEYSTORE_PATH` and the passwords to Gradle as environment variables. Without the secrets the build fails with an `::error::` annotation. Keep an offline backup of the keystore: if it is lost, every device needs an uninstall and reinstall.
 - **Install**: the Downloader app, code **6976634** → `https://github.com/ashwin-mathias/couch-lab/releases/latest/download/sparky-iptv.apk`. After that, use in-app updates.
 - **Release checklist**: bump `appVersion`; add a `changelog.json` entry (newest first, `{version, date YYYY-MM-DD, title, notes[]}`); update README controls if keys changed; update docs/ if behaviour changed; commit; push; watch the build; if it fails, read the annotations with `gh api repos/.../check-runs/<id>/annotations`.

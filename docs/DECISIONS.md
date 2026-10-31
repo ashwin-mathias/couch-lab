@@ -8,6 +8,7 @@ Why the app is the way it is. Read this before changing behaviour, so settled qu
 
 | Version | Decision | Reason |
 |---|---|---|
+| 2.5.1 | **Signing key moved out of the repo into GitHub Actions secrets, and rotated** (`KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`) | The old keystore and its password were committed to a public repo, so anyone could sign an APK that installs over the app. Rotating needs a one-time uninstall and reinstall on each device |
 | 2.5 | **Faster channel switching with one stream only**: debounce 300 ms, start after about 1 s of buffer, kept-open connection, timing in Diagnostics | Plan allows **1 connection**; no bandwidth wasted |
 | 2.5 | **Never preload neighbouring channels** | Would need a 2nd connection (plan has 1) and doubles data |
 | 2.5 | **Short OK = pause** on live TV (reverses 2.1's "short OK does nothing"); hold OK stays favourite | The Chromecast remote has no play/pause key |
@@ -58,6 +59,7 @@ Why the app is the way it is. Read this before changing behaviour, so settled qu
 16. **Don't trust one magic byte to recognise video.** Providers' recordings can start mid-packet or use 192-byte packets. Sniff for repeated sync bytes, HLS and MP4, and log what was actually received (the 2.5 test said "not video" for real recordings).
 17. **A player must never just sit there.** Every resume or recording start has a 10 s watchdog with a fallback and a message.
 18. **The clipboard API needs https.** Pages served over plain http on the home network need the execCommand fallback.
+19. **Never commit signing keys or passwords**, even to a private repo. Keep them in GitHub secrets and keep an offline backup. Deleting a file does not remove it from git history, so a leaked key must be rotated.
 
 ## Known limitations (accepted)
 - The EPG comes only from `get_short_epg` (12 entries per channel, fetched lazily). There's no XMLTV.
