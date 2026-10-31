@@ -36,7 +36,11 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // 2.8: R8 removes unused library code (the APK went from 11 MB to about 4 MB). Names are
+            // kept (-dontobfuscate in proguard-rules.pro) so crash reports in Diagnostics stay readable.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfigs.findByName("sparky")?.let { signingConfig = it }
         }
         debug {
@@ -65,6 +69,9 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            // Coroutines debugger data and Kotlin build metadata aren't used at run time (2.8).
+            excludes += "DebugProbesKt.bin"
+            excludes += "kotlin-tooling-metadata.json"
         }
     }
 }

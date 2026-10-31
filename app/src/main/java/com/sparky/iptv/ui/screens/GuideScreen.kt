@@ -196,7 +196,7 @@ private fun GuideContent(vm: AppViewModel, onPickGroup: () -> Unit) {
     }
     /** ◀ on a row's first show moves 90 min back, on catch-up channels and within their catch-up days. */
     fun moveBack(ch: Channel): Boolean {
-        if (ch.archiveDays <= 0 || vm.!prefs.isXtream) return false
+        if (ch.archiveDays <= 0 || !vm.prefs.isXtream) return false
         val next = slots - 3
         val earliest = now - ch.archiveDays * 24 * 3_600_000L - HALF_HOUR
         if (now - now % HALF_HOUR + next * HALF_HOUR < earliest) return false
