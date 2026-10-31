@@ -341,7 +341,7 @@ private fun ChannelList(
         if (i >= 0) i else channels.indexOfFirst { !it.divider }.coerceAtLeast(0)
     }
     val state = rememberLazyListState(initialFirstVisibleItemIndex = (startIndex - 3).coerceAtLeast(0))
-    val keys = remember(channels) { stableKeys(channels) { it.id } }
+    val keys = remember(channels) { vm.channelKeys(channels) }
     // ▲ / ▼ move channel by channel, skipping the provider's divider headings (see ListNav).
     val nav = rememberListNav(state, "Channel list", rowHeight = 68.u)
     fun move(i: Int, down: Boolean) = nav.step(

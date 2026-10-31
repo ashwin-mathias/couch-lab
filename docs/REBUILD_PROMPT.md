@@ -24,8 +24,8 @@ instead of inventing new behaviour.
   tv-material 1.0.0, Media3 1.4.1, OkHttp 4.12.0, Coil 2.7.0, NanoHTTPD 2.3.1, ZXing 3.5.3, JDK 17,
   minSdk 23, target 34). No extra libraries (no Navigation, Room, Hilt, Retrofit, Moshi).
 - Copy these files byte-for-byte from the repo and don't regenerate them: app/src/main/res/drawable/*.xml
-  (16 icons), res/drawable-nodpi/logo.png and avatar.png, res/drawable-xhdpi/banner.png,
-  res/mipmap-*/ic_launcher.png, res/font/inter_*.otf, assets/changelog.json,
+  (16 icons), res/drawable-nodpi/logo.webp and avatar.webp, res/drawable-xhdpi/banner.webp,
+  res/mipmap-*/ic_launcher.webp, res/font/inter_*.otf, app/proguard-rules.pro, assets/changelog.json,
   assets/about.json, gradle wrapper files.
 - UI sizes are written in design px. Implement the `.u` (×0.75 dp) and `.su` (×0.75 sp) units and use them
   everywhere. Use the colour tokens in DESIGN.md §2 by name (object C). Use no other colours, except the few

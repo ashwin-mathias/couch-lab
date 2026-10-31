@@ -96,7 +96,7 @@ Tick each box. Note the build number at the top of the run.
 ## F5. Backup and restore (2.7) — TCL dongle, iPhone Safari, an Android phone
 - [ ] F5a. Settings → Back up settings, scan, all boxes ticked, passphrase twice → Download backup: the file `sparky-backup-YYYY-MM-DD.json` saves (Files on iPhone, Downloads on Android); the TV shows "Backup saved to your phone".
 - [ ] F5b. Opened in a text editor, the encrypted file shows no readable password, username or server.
-- [ ] F5c. Passphrase checks: under 6 characters, and two different passphrases, show their errors. Unticking Login hides the passphrase fields, and the file is plain JSON without a login.
+- [ ] F5c. Passphrase checks: under 10 characters (2.8), and two different passphrases, show their errors. Unticking Login hides the passphrase fields, and the file is plain JSON without a login.
 - [ ] F5d. Fresh install (uninstall, reinstall) → setup page → **Restore from a backup file** → file + passphrase → Restore: the TV logs in, loads, and opens Home with "Restored · N favorites · settings from …". Favorites (order and folders), regions (and open/closed headings), subtitle style, sleep timer default and track choices are back, with no typing on the TV.
 - [ ] F5e. Fresh install with a backup **without** the login: the phone returns to the login form with "Backup ready: …"; after Send to TV everything else is restored.
 - [ ] F5f. Wrong passphrase: "Wrong passphrase · 2 tries left", then 1; the third locks the page ("… scan the new QR code").
@@ -180,13 +180,23 @@ Tick each box. Note the build number at the top of the run.
 - [ ] K4 (2.6). Settings shows PLAYBACK, LIBRARY, ACCOUNT and APP with single-line rows (value on the right) and fits on screen without scrolling (no update pending). All rows are reachable with ▲/▼ in order, starting on Subtitle style.
 - [ ] K5 (2.6). Sleep timer default: ◀ ▶ change 30 / 60 / 90 (no wrap; focus stays on the row); OK steps 30 → 60 → 90 → 30. The value is kept after restarting the app.
 - [ ] K6 (2.6). Clear watch history: the first OK shows "Press OK again to clear", which goes back after 3 s; two OKs within 3 s clear with "Watch history cleared".
-- [ ] K7 (2.6). Version shows "2.7 (build N)"; OK checks for updates with the usual toasts. With an update pending, the update row is on top and focused first.
+- [ ] K7 (2.6). Version shows "2.8 (build N)"; OK checks for updates with the usual toasts. With an update pending, the update row is on top and focused first.
 
 ## L0. Phone pages and stored login (2.5.2)
-- [ ] L0a. Scanning the Setup QR opens "Connect your TV". Typing the IP and port without `?k=…`, or with a wrong key, shows "Scan the QR code on your TV to open this page." (403). Same for the Diagnostics QR.
+- [ ] L0a. Scanning the Setup QR opens "Connect your TV". Typing the IP and port without `?k=…`, or with a wrong key, shows "Scan the QR code on your TV to open this page." (401 since 2.8). Same for the Diagnostics QR.
 - [ ] L0b. Leaving Setup and returning gives a new QR; the old link no longer works.
 - [ ] L0c. After upgrading from 2.5.1, the login still works with no re-entry. `adb shell run-as com.sparky.iptv cat shared_prefs/sparky.xml` shows `playlist_enc` and no `playlist`, and no readable password.
 - [ ] L0d. `adb backup` of the app produces no data (backup disabled).
+
+## L1. Size, speed and phone-page limits (2.8)
+- [ ] L1a. The APK on the release page is about 4 MB (11 MB in 2.7). It installs over 2.7.1 with the in-app update.
+- [ ] L1b. Full pass of F, F3, F4, G, H, I, J, K and F5 on the TCL dongle and the Shield after the R8 build: every screen opens, video plays, guide, catch-up, search, backup and restore work (R8 must not have removed anything).
+- [ ] L1c. Hold ▼ through All channels and through the Guide for 30 s: smooth, no stutter (the login is no longer decrypted per row).
+- [ ] L1d. Search: type quickly; the letters keep up, results appear about a quarter second after you stop, and "No matches" doesn't flash while typing.
+- [ ] L1e. Text looks the same as 2.7 everywhere, including accented names (Fútbol), superscripts (ᴴᴰ 60fps) and any Cyrillic or Greek names. The app icon, banner, logo and About avatar look the same.
+- [ ] L1f. Leave Setup (or Diagnostics) open 11 minutes: a new QR code appears; the old link says the page has expired. Using the page keeps the same code.
+- [ ] L1g. Uploading a file over 2 MB on the restore page is refused; nothing changes.
+- [ ] L1h. Force a crash (debug build): Diagnostics shows the crash with readable `com.sparky…` lines.
 
 ## L. Diagnostics and About
 - [ ] L1. The Diagnostics QR opens the log on the phone. Copy everything works. **No password or username appears anywhere in the log.**
@@ -224,4 +234,5 @@ Tick each box. Note the build number at the top of the run.
 | R19 | 2.5.2 | Setup and log pages open to anyone on the Wi-Fi; login in plain text; update not verified | See L0a–L0d and A6 |
 | R20 | 2.5 | **TV Guide: scrolling down with ▼, focus sometimes jumped to an unexpected place** (across divider rows, or to rows not yet on screen) | G5–G8, F2a, F2b |
 | R21 | 2.6 | **Live TV: scrolling down the Groups pane, focus sometimes jumped to the channel pane** (the channel list took focus 150 ms after each group change) | F3a, F3g |
+| R22 | 2.7 | Scrolling could stutter because the saved login was decrypted through the Keystore for every channel row and guide cell | L1c |
 | R15 | 2.4 | Vague "This channel isn't playing right now." with no reason | Play on 2 devices: the message names the code (509) and the fix |

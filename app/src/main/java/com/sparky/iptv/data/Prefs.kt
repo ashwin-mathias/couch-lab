@@ -9,14 +9,22 @@ val SLEEP_CHOICES = listOf(30, 60, 90)
 class Prefs(ctx: Context) {
     private val sp = ctx.getSharedPreferences("sparky", Context.MODE_PRIVATE)
 
+    // The decrypted login, kept in memory: decrypting goes through the Android Keystore, and the
+    // login is read for every channel row and guide cell (2.8). Cleared whenever it is set.
+    @Volatile private var cachedPlaylist: Playlist? = null
+    @Volatile private var playlistLoaded = false
+
     /** The saved login. Stored encrypted (Android Keystore); an older plain copy is upgraded on first read. */
     var playlist: Playlist?
         get() {
+            if (playlistLoaded) return cachedPlaylist
             val enc = sp.getString("playlist_enc", null)
             val raw = if (enc != null) SecretBox.decrypt(enc) else sp.getString("playlist", null)
             if (enc != null && raw == null) AppLog.w("Saved login couldn't be decrypted; enter it again")
             val p = raw?.let { parsePlaylist(it) }
-            if (enc == null && p != null) playlist = p // upgrade a plain 2.5.1 copy
+            if (enc == null && p != null) { playlist = p; return p } // upgrade a plain 2.5.1 copy
+            cachedPlaylist = p
+            playlistLoaded = true
             return p
         }
         set(v) {
@@ -33,7 +41,12 @@ class Prefs(ctx: Context) {
                 else e.putString("playlist", json).remove("playlist_enc")
             }
             e.apply()
+            cachedPlaylist = v
+            playlistLoaded = true
         }
+
+    /** True for an Xtream login (cheap: uses the cached login). */
+    val isXtream: Boolean get() = playlist?.type == "xtream"
 
     private fun parsePlaylist(raw: String): Playlist? = runCatching {
         val o = JSONObject(raw)

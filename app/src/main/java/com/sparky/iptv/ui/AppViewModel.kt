@@ -50,97 +50,6 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
-sealed interface Screen {
-    data object Setup : Screen
-    data object Loading : Screen
-    data object Home : Screen
-    data object About : Screen
-    data object Diagnostics : Screen
-    data object SubtitleStyle : Screen
-    data object FavFolders : Screen
-    data class BackupRestore(val restore: Boolean) : Screen
-    data class Regions(val firstRun: Boolean) : Screen
-    data class MovieDetail(val movie: Movie) : Screen
-    data class SeriesDetail(val series: Series) : Screen
-    data class Player(val request: PlayRequest) : Screen
-}
-
-enum class Section { HOME, LIVE, GUIDE, FAVORITES, RECENT, MOVIES, SERIES, SEARCH, SETTINGS }
-
-sealed interface PlayRequest {
-    data class Live(val channels: List<Channel>, val index: Int) : PlayRequest
-    data class Vod(val items: List<VodItem>, val index: Int, val resumeMs: Long) : PlayRequest
-}
-
-data class VodItem(
-    val key: String, val title: String, val subtitle: String, val url: String,
-    val seriesId: String? = null, val episodeId: String? = null,
-    /** Catch-up recordings don't keep resume points. */
-    val saveProgress: Boolean = true,
-)
-
-const val SLEEP_WARNING = "Sleeping in 1 minute · press any key to keep watching"
-
-const val GROUP_FAV = "__fav"
-const val GROUP_ALL = "__all"
-const val GROUP_RECENT = "__recent"
-const val GROUP_ACTION_ALL_REGIONS = "__toggle_regions"
-
-enum class GroupKind { GROUP, HEADER, ACTION }
-
-/**
- * One row in a group list: a channel group, a region heading, or an action.
- * Headings carry their [region] and whether they're [open]; favorites folders are [indent]ed under Favorites.
- */
-data class GroupItem(
-    val id: String, val name: String, val count: Int, val kind: GroupKind = GroupKind.GROUP,
-    val region: String? = null, val open: Boolean = true, val indent: Boolean = false,
-)
-
-/** Favorites folders appear as groups with this prefix plus the folder id. */
-const val GROUP_FOLDER = "fav:"
-
-/** Lists that can be reordered: all favorite channels / movies / series, one folder, or the folders themselves. */
-const val LIST_LIVE = "all:live"
-const val LIST_MOVIE = "all:movie"
-const val LIST_SERIES = "all:series"
-const val LIST_FOLDERS = "folders"
-fun folderList(id: String) = "folder:$id"
-
-/** A favorite being moved: [working] is the list as shown while it moves. Keys move by [upDown] / [leftRight] places. */
-data class MoveSession(val listId: String, val key: String, val working: List<String>, val upDown: Int, val leftRight: Int)
-
-/** The hold-OK menu for a favorite. [moveList] is null where the list can't be reordered. */
-data class FavMenuRequest(val key: String, val label: String, val moveList: String?, val upDown: Int, val leftRight: Int)
-
-data class RegionInfo(val code: String, val label: String, val channels: Int)
-
-/** Lookups derived from the library: which region each category belongs to, cleaned names, counts. */
-class LiveIndex(lib: Library) {
-    val catRegion: Map<String, String> = lib.liveCats.associate { it.id to (Names.region(it.name) ?: Names.OTHER) }
-    val catName: Map<String, String> = lib.liveCats.associate { it.id to Names.strip(it.name) }
-    val vodRegion: Map<String, String> = lib.vodCats.associate { it.id to (Names.region(it.name) ?: Names.OTHER) }
-    val seriesRegion: Map<String, String> = lib.seriesCats.associate { it.id to (Names.region(it.name) ?: Names.OTHER) }
-    val countByCat: Map<String, Int> = lib.channels.asSequence().filter { !it.divider }.groupingBy { it.categoryId }.eachCount()
-    val regions: List<RegionInfo> = run {
-        val counts = HashMap<String, Int>()
-        for ((cat, n) in countByCat) {
-            val r = catRegion[cat] ?: Names.OTHER
-            counts[r] = (counts[r] ?: 0) + n
-        }
-        counts.map { (code, n) -> RegionInfo(code, Names.regionLabel(code), n) }.sortedByDescending { it.channels }
-    }
-
-    fun regionOfChannel(ch: Channel): String = catRegion[ch.categoryId] ?: Names.OTHER
-
-    companion object {
-        val EMPTY = LiveIndex(Library.EMPTY)
-    }
-}
-const val CAT_RECENT = "__recent"
-const val CAT_FAV = "__fav"
-const val CAT_ALL = "__all"
-
 class AppViewModel(app: Application) : AndroidViewModel(app) {
     val prefs = Prefs(app)
     val repo = Repository(app, prefs)
@@ -154,7 +63,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var index by mutableStateOf(LiveIndex.EMPTY)
         private set
 
-    private fun setLib(lib: Library) {
+    internal fun setLib(lib: Library) {
         library = lib
         index = LiveIndex(lib)
     }
@@ -187,7 +96,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var setupBusy by mutableStateOf(false)
         private set
-    private var server: SetupServer? = null
+    private var server: PhoneServer? = null
+    private var setupRenew: kotlinx.coroutines.Job? = null
 
 
     // ---------- navigation ----------
@@ -196,7 +106,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (stack.size > 1) { stack.removeAt(stack.lastIndex); return true }
         return false
     }
-    private fun resetTo(s: Screen) { stack.clear(); stack.add(s) }
+    internal fun resetTo(s: Screen) { stack.clear(); stack.add(s) }
 
     // ---------- loading ----------
     val loadSteps = mutableStateListOf<LoadStep>()
@@ -373,13 +283,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val ip = Net.localIp(app)
         val name = runCatching { Settings.Global.getString(app.contentResolver, "device_name") }.getOrNull()
             ?: Build.MODEL ?: "Your TV"
-        restoreFails = 0
+        phone.restoreFails = 0
         val s = SetupServer.startOnFreePort(
             name,
             existing = prefs.playlist != null,
-            onRestore = { body, token, lock -> restoreRequest(body, existing = prefs.playlist != null, setupToken = token, lock = lock) },
+            onRestore = { body, token, lock -> phone.restoreRequest(body, existing = prefs.playlist != null, setupToken = token, lock = lock) },
             restoredNote = {
-                pendingRestore?.let { "Backup ready: ${it.favoriteCount} favorites and your settings. Enter your login to finish." }
+                phone.pendingRestore?.let { "Backup ready: ${it.favoriteCount} favorites and your settings. Enter your login to finish." }
             },
         ) { p ->
             runBlocking(Dispatchers.Main) { setupBusy = true }
@@ -391,9 +301,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         prefs.playlist = p
                         prefs.account = acct
                         prefs.liveFormat = acct.liveFormat
-                        pendingRestore?.let { c ->
-                            pendingRestore = null
-                            runCatching { applyRestore(c, Backup.Mode.REPLACE, null, null) }
+                        phone.pendingRestore?.let { c ->
+                            phone.pendingRestore = null
+                            runCatching { phone.applyRestore(c, Backup.Mode.REPLACE, null, null) }
                                 .onFailure { AppLog.e("Restore after login failed", it) }
                         }
                         repo.clearCache()
@@ -411,9 +321,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         server = s
         setupUrl = if (s != null && ip != null) "http://$ip:${s.listeningPort}/?k=${s.token}" else null
+        // The key stops working after 10 minutes without use; then the Setup screen gets a new QR code (2.8).
+        if (s != null) setupRenew = viewModelScope.launch {
+            while (true) {
+                delay(20_000)
+                if (server === s && s.expired && !setupBusy) {
+                    AppLog.i("Setup QR code renewed")
+                    startSetup()
+                    break
+                }
+            }
+        }
     }
 
     fun stopSetup() {
+        setupRenew?.cancel()
+        setupRenew = null
         server?.stop()
         server = null
     }
@@ -437,7 +360,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var folders by mutableStateOf(prefs.favFolders())
         private set
 
-    private fun saveFavs(keys: Set<String>, order: List<String>, fs: List<FavFolder>) {
+    internal fun saveFavs(keys: Set<String>, order: List<String>, fs: List<FavFolder>) {
         favorites = keys
         favOrder = Favs.normalize(order, keys)
         folders = fs.map { f -> f.copy(keys = f.keys.filter { it in keys }) }
@@ -495,7 +418,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private var chByKey: Map<String, Channel> = emptyMap()
     private var mvByKey: Map<String, Movie> = emptyMap()
     private var srByKey: Map<String, Series> = emptyMap()
-    private fun lookup() {
+    internal fun lookup() {
         val lib = library
         if (lookupFor === lib) return
         lookupFor = lib
@@ -506,7 +429,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun channelForKey(key: String): Channel? { lookup(); return chByKey[key] }
     fun movieForKey(key: String): Movie? { lookup(); return mvByKey[key] }
     fun seriesForKey(key: String): Series? { lookup(); return srByKey[key] }
-    private fun present(key: String): Boolean = when {
+    internal fun present(key: String): Boolean = when {
         key.startsWith("live:") -> channelForKey(key) != null
         key.startsWith("movie:") -> movieForKey(key) != null
         key.startsWith("series:") -> seriesForKey(key) != null
@@ -558,7 +481,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             prefs.saveFavOrder(favOrder)
             AppLog.i("Favorites order set from the provider's order (${favOrder.size} items)")
         }
-        reconcileRestore()
+        phone.reconcileRestore()
     }
 
     // ---------- moving a favorite ----------
@@ -663,182 +586,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         AppLog.i("Favorites updated from the phone: ${folders.size} folders")
     }
 
-    // ---------- phone pages: backup, restore, favorites folders ----------
+    // ---------- phone pages: backup, restore, favorites folders (see PhoneFeatures) ----------
     enum class PhonePage { BACKUP, RESTORE, FAVORITES }
 
-    var phoneUrl by mutableStateOf<String?>(null)
-        private set
-    private var phoneServer: PhoneServer? = null
-    private var restoreFails = 0
-    /** A backup without a login, waiting for the login on a fresh install. */
-    private var pendingRestore: Backup.Contents? = null
+    val phone = PhoneFeatures(this)
+    val phoneUrl: String? get() = phone.phoneUrl
+    fun startPhonePage(page: PhonePage) = phone.startPhonePage(page)
+    fun stopPhonePage() = phone.stopPhonePage()
 
-    private fun deviceName(): String {
-        val app = getApplication<Application>()
-        return runCatching { Settings.Global.getString(app.contentResolver, "device_name") }.getOrNull()
-            ?: Build.MODEL ?: "Your TV"
-    }
-
-    private fun appVersionName(): String {
-        val app = getApplication<Application>()
-        return runCatching { app.packageManager.getPackageInfo(app.packageName, 0).versionName }.getOrNull() ?: ""
-    }
-
-    /** Opens a phone page (shown on the TV as a QR code). It stops when the TV screen closes or after 10 minutes. */
-    fun startPhonePage(page: PhonePage) {
-        stopPhonePage()
-        val ip = Net.localIp(getApplication())
-        val device = deviceName()
-        restoreFails = 0
-        val s = PhoneServer.start(10 * 60_000L) { session -> phoneRequest(page, device, session) }
-        phoneServer = s
-        phoneUrl = if (s != null && ip != null) "http://$ip:${s.listeningPort}/?k=${s.token}" else null
-    }
-
-    fun stopPhonePage() {
-        phoneServer?.stop()
-        phoneServer = null
-        phoneUrl = null
-    }
-
-    private fun PhoneServer.phoneRequest(page: PhonePage, device: String, session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
-        val post = session.method == NanoHTTPD.Method.POST
-        return when (page) {
-            PhonePage.BACKUP ->
-                if (post && session.uri.startsWith("/make")) makeBackup(this, device, form(session))
-                else html(PhonePages.backup(device, token, null, prefs.playlist != null))
-            PhonePage.RESTORE ->
-                if (post && session.uri.startsWith("/restore")) json(restoreRequest(body(session), existing = true) { lock() })
-                else html(PhonePages.restore(device, token, existing = true))
-            PhonePage.FAVORITES ->
-                if (post && session.uri.startsWith("/favs")) json(phoneFavorites(body(session)))
-                else html(PhonePages.favorites(device, token, runBlocking(Dispatchers.Main) { favoritesForPhone() }))
-        }
-    }
-
-    /** Name used to find a favorite again if the provider renumbers it. */
-    private fun matchName(key: String): String? =
-        channelForKey(key)?.name ?: movieForKey(key)?.name ?: seriesForKey(key)?.name
-
-    private fun makeBackup(server: PhoneServer, device: String, f: Map<String, String>): NanoHTTPD.Response {
-        val opts = Backup.Options(
-            login = f["login"] != null && prefs.playlist != null,
-            favorites = f["favs"] != null, playback = f["playback"] != null, history = f["history"] != null,
-        )
-        val pass = f["pass"].orEmpty()
-        val error = when {
-            !opts.login && !opts.favorites && !opts.playback && !opts.history -> "Tick at least one thing to back up."
-            opts.login && pass.length < 6 -> "Use at least 6 characters for the passphrase."
-            opts.login && pass != f["pass2"] -> "The passphrases don't match."
-            else -> null
-        }
-        if (error != null) return server.html(PhonePages.backup(device, server.token, error, prefs.playlist != null))
-        val names = runBlocking(Dispatchers.Main) { favorites.associateWith { matchName(it) } }
-        val text = Backup.create(prefs, opts, pass.takeIf { opts.login }, device, appVersionName()) { names[it] }
-        val now = System.currentTimeMillis()
-        viewModelScope.launch { toast = "Backup saved to your phone" }
-        AppLog.i("Backup made: login ${if (opts.login) "yes (encrypted)" else "no"}, ${if (opts.favorites) "${favorites.size} favorites" else "no favorites"}, " +
-            "playback ${if (opts.playback) "yes" else "no"}, history ${if (opts.history) "yes" else "no"}")
-        return server.download(Backup.fileName(now), text)
-    }
-
-    private fun sameLogin(a: Playlist, b: Playlist) =
-        a.type == b.type && a.url.trim().trimEnd('/') == b.url.trim().trimEnd('/') && a.user == b.user && a.pass == b.pass
-
-    private fun jsonError(msg: String, extra: (JSONObject) -> Unit = {}) =
-        JSONObject().put("ok", false).put("error", msg).also(extra).toString()
-
-    /**
-     * Handles the restore upload (from the restore page or the first-run login page). Returns the
-     * JSON answer for the phone. [lock] stops the page after three wrong passphrases.
-     */
-    fun restoreRequest(body: String, existing: Boolean, setupToken: String? = null, lock: () -> Unit): String {
-        val o = runCatching { JSONObject(body) }.getOrNull() ?: return jsonError("Couldn't read the upload. Try again.")
-        val c = try {
-            Backup.read(o.optString("file"), o.optString("pass").ifEmpty { null })
-        } catch (e: Backup.WrongPassphrase) {
-            if (o.optString("pass").isEmpty()) return jsonError(e.message ?: "Enter the passphrase.")
-            restoreFails++
-            AppLog.w("Restore: wrong passphrase ($restoreFails of 3)")
-            if (restoreFails >= 3) {
-                lock()
-                return jsonError("Wrong passphrase three times. Open the screen on your TV again and scan the new QR code.") { it.put("locked", true) }
-            }
-            val left = 3 - restoreFails
-            return jsonError("Wrong passphrase · $left ${if (left == 1) "try" else "tries"} left")
-        } catch (e: Backup.BackupException) {
-            AppLog.w("Restore refused: ${e.message}")
-            return jsonError(e.message ?: "This backup file is damaged.")
-        }
-        val mode = if (o.optString("mode") == "replace" || prefs.playlist == null) Backup.Mode.REPLACE else Backup.Mode.ADD
-        val login = c.login()
-        val current = prefs.playlist
-        // A backup without a login on a TV without one: keep it until the login is entered.
-        if (login == null && current == null) {
-            pendingRestore = c
-            AppLog.i("Restore: backup without a login, waiting for the login")
-            return JSONObject().put("ok", true).put("next", "/?k=${setupToken ?: ""}&restored=1").toString()
-        }
-        val changes = login != null && (current == null || !sameLogin(login, current))
-        if (existing && changes && current != null && !o.optBoolean("confirm")) {
-            val server = com.sparky.iptv.data.XtreamClient.normalizeBase(login!!.url)
-            return JSONObject().put("ok", false)
-                .put("confirm", "This backup uses a different login ($server). Restoring it replaces your current login.").toString()
-        }
-        var acct: com.sparky.iptv.data.AccountInfo? = null
-        if (changes) {
-            val r = runBlocking(Dispatchers.IO) { runCatching { repo.validate(login!!) } }
-            acct = r.getOrElse {
-                AppLog.e("Restore: saved login failed", it)
-                return jsonError("The login in this backup didn't work: ${it.message ?: "couldn't log in"}")
-            }
-        }
-        return try {
-            val msg = runBlocking(Dispatchers.Main) { applyRestore(c, mode, if (changes) login else null, acct) }
-            JSONObject().put("ok", true).put("message", msg).toString()
-        } catch (e: Exception) {
-            AppLog.e("Restore failed", e)
-            jsonError(e.message ?: "Couldn't restore.")
-        }
-    }
-
-    /** Applies a checked backup (main thread). [login] is set only when it replaces the current one. */
-    private fun applyRestore(c: Backup.Contents, mode: Backup.Mode, login: Playlist?, acct: com.sparky.iptv.data.AccountInfo?): String {
-        val names = Backup.apply(prefs, c, mode)
-        if (c.data.has("favorites")) prefs.restorePending = JSONObject().put("names", names).put("total", c.favoriteCount).toString()
-        if (login != null && acct != null) {
-            prefs.playlist = login
-            prefs.account = acct
-            if (c.data.optJSONObject("playback")?.has("live_format") != true) prefs.liveFormat = acct.liveFormat
-        }
-        reloadFromPrefs()
-        val created = runCatching {
-            java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(c.created.take(10))
-        }.getOrNull()
-        val date = created?.let { java.text.SimpleDateFormat("MMM d", java.util.Locale.US).format(it) } ?: "your backup"
-        val text = "Restored · ${favorites.size} favorites · settings from $date"
-        AppLog.i("Restore: ${mode.name.lowercase()}, ${favorites.size} favorites, login ${if (login != null) "replaced" else "kept"}")
-        toast = text
-        if (login != null) {
-            repo.clearCache()
-            epg.clear(); epgFetchedAt.clear()
-            setLib(Library.EMPTY)
-            // Let the phone get its answer before the TV screen (and its page) closes.
-            viewModelScope.launch {
-                delay(1500)
-                stopPhonePage()
-                stopSetup()
-                resetTo(Screen.Loading)
-                load()
-            }
-            return "$text. Your TV is loading your channels now."
-        }
-        if (!vodLoading && !library.isEmpty) reconcileRestore()
-        return "$text."
-    }
+    internal fun clearEpg() { epg.clear(); epgFetchedAt.clear() }
 
     /** Re-reads everything a restore can change. */
-    private fun reloadFromPrefs() {
+    internal fun reloadFromPrefs() {
         favorites = prefs.favorites()
         favOrderSaved = prefs.favOrder() != null
         favOrder = Favs.normalize(prefs.favOrder() ?: emptyList(), favorites)
@@ -850,78 +609,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         tileModes.clear()
         progressVersion++
         if (liveGroup.startsWith(GROUP_FOLDER) && folder(liveGroup.removePrefix(GROUP_FOLDER)) == null) liveGroup = GROUP_FAV
-    }
-
-    /** After a restore: finds favorites the provider renumbered by their exact name, and reports what's gone. */
-    private fun reconcileRestore() {
-        val raw = prefs.restorePending ?: return
-        prefs.restorePending = null
-        val o = runCatching { JSONObject(raw) }.getOrNull() ?: return
-        val names = o.optJSONObject("names") ?: JSONObject()
-        lookup()
-        val missing = favorites.filter { !present(it) }
-        if (missing.isEmpty()) return
-        val lib = library
-        val chByName = HashMap<String, Channel>().apply { lib.channels.forEach { if (!it.divider) putIfAbsent(it.name, it) } }
-        val mvByName = HashMap<String, Movie>().apply { lib.movies.forEach { putIfAbsent(it.name, it) } }
-        val srByName = HashMap<String, Series>().apply { lib.series.forEach { putIfAbsent(it.name, it) } }
-        val remap = HashMap<String, String>()
-        val notFound = ArrayList<String>()
-        for (k in missing) {
-            val n = names.optString(k).ifBlank { null }
-            val target = n?.let {
-                when {
-                    k.startsWith("live:") -> chByName[it]?.favKey
-                    k.startsWith("movie:") -> mvByName[it]?.favKey
-                    k.startsWith("series:") -> srByName[it]?.favKey
-                    else -> null
-                }
-            }
-            if (target != null && target !in favorites && target !in remap.values) remap[k] = target else notFound.add(n ?: k)
-        }
-        if (remap.isNotEmpty()) {
-            saveFavs(
-                favorites.map { remap[it] ?: it }.toSet(),
-                favOrder.map { remap[it] ?: it },
-                folders.map { f -> f.copy(keys = f.keys.map { remap[it] ?: it }) },
-            )
-        }
-        val total = o.optInt("total", favorites.size)
-        AppLog.i("Restore: ${remap.size} favorites found by name, ${notFound.size} not found")
-        if (notFound.isNotEmpty()) {
-            toast = "${total - notFound.size} of $total favorites restored · ${notFound.size} not found: " +
-                notFound.take(3).joinToString(", ") + if (notFound.size > 3) "…" else ""
-        }
-    }
-
-    /** Data for the phone's favorites page: your favorite channels in order, and the folders. */
-    private fun favoritesForPhone(): String {
-        val chans = JSONArray()
-        favChannels().forEach { ch -> chans.put(JSONObject().put("key", ch.favKey).put("name", ch.display).put("num", ch.num)) }
-        return JSONObject().put("channels", chans).put("folders", Favs.foldersToJson(folders)).toString()
-    }
-
-    /** Saves what the phone's favorites page sent. */
-    private fun phoneFavorites(body: String): String {
-        val o = runCatching { JSONObject(body) }.getOrNull() ?: return jsonError("Couldn't read the changes. Try again.")
-        val orderArr = o.optJSONArray("order") ?: JSONArray()
-        val order = List(orderArr.length()) { orderArr.optString(it) }
-        val arr = o.optJSONArray("folders") ?: JSONArray()
-        return runBlocking(Dispatchers.Main) {
-            val known = folders.map { it.id }.toHashSet()
-            val out = ArrayList<FavFolder>()
-            for (i in 0 until arr.length()) {
-                val f = arr.optJSONObject(i) ?: continue
-                val name = f.optString("name").trim()
-                Favs.nameError(name, out)?.let { return@runBlocking jsonError(if (name.isEmpty()) "Every folder needs a name." else it) }
-                val keysArr = f.optJSONArray("keys") ?: JSONArray()
-                val keys = List(keysArr.length()) { keysArr.optString(it) }.filter { it.startsWith("live:") && it in favorites }.distinct()
-                val id = f.optString("id").takeIf { it in known && out.none { o2 -> o2.id == it } } ?: Favs.newId(out + folders)
-                out.add(FavFolder(id, name, keys))
-            }
-            applyPhoneFavorites(order, out)
-            JSONObject().put("ok", true).put("folders", Favs.foldersToJson(folders)).toString()
-        }
     }
 
     // ---------- lists ----------
@@ -1007,13 +694,37 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun channelsFor(group: String): List<Channel> {
         val all = library.channels
         return when (group) {
-            GROUP_ALL -> if (myRegions.isEmpty() || showAllRegions) all
-                else all.filter { regionVisible(index.regionOfChannel(it)) }
+            GROUP_ALL -> if (myRegions.isEmpty() || showAllRegions) all else allMine()
             GROUP_FAV -> favChannels()
-            GROUP_RECENT -> recents.filter { it.type == "live" }.mapNotNull { r -> all.firstOrNull { it.id == r.id } }
+            GROUP_RECENT -> recents.filter { it.type == "live" }.mapNotNull { r -> channelForKey("live:" + r.id) }
             else -> if (group.startsWith(GROUP_FOLDER)) folderChannels(group.removePrefix(GROUP_FOLDER))
-                else all.filter { it.categoryId == group }
+                else index.byCat[group].orEmpty()
         }
+    }
+
+    // "All my channels" filtered once per library and region choice, not on every visit (2.8).
+    private var allMineFor: Triple<Library, Set<String>, Boolean>? = null
+    private var allMine: List<Channel> = emptyList()
+    private fun allMine(): List<Channel> {
+        val k = Triple(library, myRegions, showAllRegions)
+        if (allMineFor != k) {
+            allMine = library.channels.filter { regionVisible(index.regionOfChannel(it)) }
+            allMineFor = k
+        }
+        return allMine
+    }
+
+    // Lazy-list keys for the last few channel lists, so reopening "All channels" doesn't rebuild 57k keys (2.8).
+    private val keyMemo = ArrayDeque<Pair<List<Channel>, List<String>>>()
+    fun channelKeys(list: List<Channel>): List<String> {
+        keyMemo.firstOrNull { it.first === list }?.let { return it.second }
+        val keys = com.sparky.iptv.ui.components.stableKeys(list) { it.id }
+        // Only big lists are worth keeping; small ones are cheap to rebuild.
+        if (list.size > 2_000) {
+            keyMemo.addFirst(list to keys)
+            while (keyMemo.size > 2) keyMemo.removeLast()
+        }
+        return keys
     }
 
     /** The reorderable list behind a group, if any (Favorites or a folder). */
@@ -1077,12 +788,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun recentEntries(): List<RecentEntry> {
-        val lib = library
         return recents.mapNotNull { r ->
             when (r.type) {
-                "live" -> lib.channels.firstOrNull { it.id == r.id }?.let { RecentEntry.Ch(it) }
-                "movie" -> lib.movies.firstOrNull { it.id == r.id }?.let { RecentEntry.Mv(it) }
-                "series" -> lib.series.firstOrNull { it.id == r.id }?.let { RecentEntry.Sr(it) }
+                "live" -> channelForKey("live:" + r.id)?.let { RecentEntry.Ch(it) }
+                "movie" -> movieForKey("movie:" + r.id)?.let { RecentEntry.Mv(it) }
+                "series" -> seriesForKey("series:" + r.id)?.let { RecentEntry.Sr(it) }
                 else -> null
             }
         }
@@ -1100,7 +810,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun maybeDailyRefresh() {
         val age = System.currentTimeMillis() - prefs.lastRefresh
         // Version 2.2 records catch-up info; fetch once so Diagnostics can report it.
-        val needCatchup = !prefs.catchupScanned && prefs.playlist?.type == "xtream"
+        val needCatchup = !prefs.catchupScanned && prefs.isXtream
         if (age > 24 * 60 * 60_000L || needCatchup) {
             AppLog.i(if (prefs.lastRefresh <= 0L) "Daily refresh: first update" else "Daily refresh: last update ${age / 3_600_000}h ago")
             refreshInBackground()
@@ -1118,7 +828,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------- EPG ----------
     fun ensureEpg(ch: Channel) {
-        if (prefs.playlist?.type != "xtream") return
+        if (!prefs.isXtream) return
         val now = System.currentTimeMillis()
         val have = epg[ch.id]
         val fetched = epgFetchedAt[ch.id] ?: 0L
@@ -1149,7 +859,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Loads past shows too (catch-up channels only), for scrolling back in the guide. */
     fun ensureFullEpg(ch: Channel) {
-        if (prefs.playlist?.type != "xtream" || ch.archiveDays <= 0) return
+        if (!prefs.isXtream || ch.archiveDays <= 0) return
         val now = System.currentTimeMillis()
         if (now - (fullEpgAt[ch.id] ?: 0L) < 30 * 60_000L || !fullEpgInFlight.add(ch.id)) return
         viewModelScope.launch {
@@ -1173,7 +883,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     // ---------- catch-up ----------
     /** True when [e] can be replayed: a past show on a catch-up channel, within its catch-up days. */
     fun canReplay(ch: Channel, e: EpgEntry, now: Long = System.currentTimeMillis()): Boolean =
-        prefs.playlist?.type == "xtream" && ch.archiveDays > 0 && e.end <= now &&
+        prefs.isXtream && ch.archiveDays > 0 && e.end <= now &&
             e.start >= now - ch.archiveDays * 24 * 3_600_000L
 
     /** Plays a past show from its start, in the movie player. */

@@ -175,7 +175,7 @@ private fun GuideContent(vm: AppViewModel, onPickGroup: () -> Unit) {
     var focusedProg by remember { mutableStateOf<EpgEntry?>(null) }
     val firstFocus = remember { FocusRequester() }
     // Stable row keys (the channel id), so a row keeps focus when its guide data arrives.
-    val keys = remember(channels) { stableKeys(channels) { it.id } }
+    val keys = remember(channels) { vm.channelKeys(channels) }
     val listState = rememberLazyListState()
     val nav = rememberListNav(listState, "Guide", rowHeight = 56.u)
     // Each composed row registers how to focus its cell at a given time; returns that cell's start.
@@ -196,7 +196,7 @@ private fun GuideContent(vm: AppViewModel, onPickGroup: () -> Unit) {
     }
     /** ◀ on a row's first show moves 90 min back, on catch-up channels and within their catch-up days. */
     fun moveBack(ch: Channel): Boolean {
-        if (ch.archiveDays <= 0 || vm.prefs.playlist?.type != "xtream") return false
+        if (ch.archiveDays <= 0 || !vm.prefs.isXtream) return false
         val next = slots - 3
         val earliest = now - ch.archiveDays * 24 * 3_600_000L - HALF_HOUR
         if (now - now % HALF_HOUR + next * HALF_HOUR < earliest) return false

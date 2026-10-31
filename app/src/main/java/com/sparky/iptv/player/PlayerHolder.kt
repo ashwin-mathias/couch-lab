@@ -36,12 +36,10 @@ object PlayerHolder {
     fun get(ctx: Context): ExoPlayer {
         player?.let { return it }
         // One OkHttp client keeps the connection to the provider open between channel switches.
-        val client = OkHttpClient.Builder()
+        // It shares the app's connection pool (Http.base).
+        val client = com.sparky.iptv.data.Http.base.newBuilder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
-            .followRedirects(true)
-            .followSslRedirects(true)
-            .retryOnConnectionFailure(true)
             .build()
         this.client = client
         val http = OkHttpDataSource.Factory(client).setUserAgent(USER_AGENT)

@@ -18,6 +18,15 @@ object Backup {
     const val FORMAT = "sparky-backup"
     const val VERSION = 1
     const val ROUNDS = 210_000
+    /** Shortest passphrase accepted for a new backup (2.8; was 6). Restoring older files isn't affected. */
+    const val MIN_PASSPHRASE = 10
+
+    // Limits on what a restore may write (2.8), so a crafted file can't fill the settings store.
+    const val MAX_FAVORITES = 5_000
+    const val MAX_FOLDERS = 100
+    const val MAX_RESUME_POINTS = 2_000
+    const val MAX_SERIES_LAST = 2_000
+    const val MAX_TILE_KEYS = 50
 
     data class Options(val login: Boolean, val favorites: Boolean, val playback: Boolean, val history: Boolean)
 
@@ -118,11 +127,12 @@ object Backup {
         val e = prefs.edit()
         val names = JSONObject()
         d.optJSONArray("favorites")?.let { arr ->
-            val fileFavs = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
+            val fileFavs = (0 until minOf(arr.length(), MAX_FAVORITES)).mapNotNull { arr.optJSONObject(it) }
             fileFavs.forEach { f -> f.optString("name").ifBlank { null }?.let { names.put(f.optString("key"), it) } }
             val fileKeys = fileFavs.map { it.optString("key") }.filter { it.contains(':') }
-            val fileOrder = d.optJSONArray("fav_order")?.let { a -> List(a.length()) { a.optString(it) } } ?: fileKeys
-            val fileFolders = d.optJSONArray("fav_folders")?.let { Favs.foldersFromArray(it) } ?: emptyList()
+            val fileOrder = d.optJSONArray("fav_order")?.let { a -> List(minOf(a.length(), MAX_FAVORITES)) { a.optString(it) } } ?: fileKeys
+            val fileFolders = (d.optJSONArray("fav_folders")?.let { Favs.foldersFromArray(it) } ?: emptyList())
+                .take(MAX_FOLDERS).map { it.copy(keys = it.keys.take(MAX_FAVORITES)) }
             val keys: Set<String>
             val order: List<String>
             val folders: List<FavFolder>
@@ -145,8 +155,8 @@ object Backup {
             e.putStringSet("favorites", HashSet(keys))
             e.putString("fav_order", Favs.orderToJson(order))
             e.putString("fav_folders", Favs.foldersToJson(folders).toString())
-            d.optJSONArray("my_regions")?.let { a -> e.putStringSet("my_regions", HashSet(List(a.length()) { a.optString(it) })) }
-            d.optJSONArray("regions_closed")?.let { a -> e.putStringSet("regions_closed", HashSet(List(a.length()) { a.optString(it) })) }
+            d.optJSONArray("my_regions")?.let { a -> e.putStringSet("my_regions", HashSet(List(minOf(a.length(), 200)) { a.optString(it) })) }
+            d.optJSONArray("regions_closed")?.let { a -> e.putStringSet("regions_closed", HashSet(List(minOf(a.length(), 200)) { a.optString(it) })) }
         }
         d.optJSONObject("playback")?.let { pb ->
             if (mode == Mode.REPLACE) PLAYBACK_KEYS.forEach { e.remove(it) }
@@ -161,18 +171,22 @@ object Backup {
         }
         d.optJSONObject("tracks")?.let { t ->
             if (mode == Mode.REPLACE) all.keys.filter { it.startsWith("trk:") }.forEach { e.remove(it) }
-            t.keys().forEach { k -> if (k.startsWith("trk:")) e.putString(k, t.optString(k)) }
-            d.optString("trk_order").ifBlank { null }?.let { e.putString("trk_order", it) }
+            // Same cap as on the TV: the 200 most recent choices (the file's order, newest first).
+            val order = runCatching { val a = org.json.JSONArray(d.optString("trk_order", "[]")); List(a.length()) { a.optString(it) } }
+                .getOrDefault(emptyList()).take(Prefs.MAX_TRACK_CHOICES)
+            val keep = if (order.isNotEmpty()) order.map { "trk:$it" }.filter { t.has(it) }
+                else t.keys().asSequence().filter { it.startsWith("trk:") }.take(Prefs.MAX_TRACK_CHOICES).toList()
+            keep.forEach { k -> e.putString(k, t.optString(k)) }
+            if (order.isNotEmpty()) e.putString("trk_order", org.json.JSONArray(order).toString())
         }
         d.optJSONObject("tiles")?.let { t ->
             if (mode == Mode.REPLACE) all.keys.filter { it.startsWith("tiles:") }.forEach { e.remove(it) }
-            t.keys().forEach { k -> if (k.startsWith("tiles:")) e.putBoolean(k, t.optBoolean(k)) }
+            t.keys().asSequence().filter { it.startsWith("tiles:") }.take(MAX_TILE_KEYS).forEach { k -> e.putBoolean(k, t.optBoolean(k)) }
         }
         d.optJSONObject("history")?.let { h ->
             if (mode == Mode.REPLACE) all.keys.filter { it.startsWith("pos:") || it.startsWith("slast:") }.forEach { e.remove(it) }
             h.optJSONObject("pos")?.let { p ->
-                p.keys().forEach { k ->
-                    if (!k.startsWith("pos:")) return@forEach
+                p.keys().asSequence().filter { it.startsWith("pos:") }.take(MAX_RESUME_POINTS).forEach { k ->
                     val v = p.optString(k)
                     val mineTs = (all[k] as? String)?.split(",")?.getOrNull(2)?.toLongOrNull() ?: -1L
                     val fileTs = v.split(",").getOrNull(2)?.toLongOrNull() ?: 0L
@@ -180,7 +194,8 @@ object Backup {
                 }
             }
             h.optJSONObject("slast")?.let { s ->
-                s.keys().forEach { k -> if (k.startsWith("slast:") && (mode == Mode.REPLACE || all[k] == null)) e.putString(k, s.optString(k)) }
+                s.keys().asSequence().filter { it.startsWith("slast:") }.take(MAX_SERIES_LAST)
+                    .forEach { k -> if (mode == Mode.REPLACE || all[k] == null) e.putString(k, s.optString(k)) }
             }
             h.optString("recents").ifBlank { null }?.let { raw ->
                 if (mode == Mode.REPLACE) e.putString("recents", raw)

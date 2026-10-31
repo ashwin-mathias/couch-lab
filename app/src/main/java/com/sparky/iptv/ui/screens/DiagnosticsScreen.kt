@@ -91,11 +91,22 @@ fun DiagnosticsScreen(vm: AppViewModel) {
             }
         }
     }
-    DisposableEffect(Unit) {
+    // The log page's key stops working after 10 minutes without use; a new QR code replaces it (2.8).
+    var generation by remember { mutableIntStateOf(0) }
+    var logServer by remember { mutableStateOf<com.sparky.iptv.setup.PhoneServer?>(null) }
+    DisposableEffect(generation) {
         val s = LogServer.startOnFreePort(header)
+        logServer = s
         url = if (s != null && ip != null) "http://$ip:${s.listeningPort}/?k=${s.token}" else null
-        AppLog.i("Diagnostics opened")
+        if (generation == 0) AppLog.i("Diagnostics opened")
         onDispose { s?.stop() }
+    }
+    LaunchedEffect(logServer) {
+        val s = logServer ?: return@LaunchedEffect
+        while (true) {
+            delay(20_000)
+            if (s.expired) { generation++; break }
+        }
     }
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(150); runCatching { first.requestFocus() } }

@@ -24,7 +24,7 @@ How the app is built: the stack, the code layout, the data, storage, and the rel
 | kotlinx-coroutines-android | 1.8.1 |
 
 - Compiler flags: `-opt-in=androidx.tv.material3.ExperimentalTvMaterial3Api` and `-opt-in=androidx.compose.foundation.ExperimentalFoundationApi`.
-- `isMinifyEnabled = false`; lint does not fail the build. `gradle.properties` sets `-Xmx3g`, AndroidX and non-transitive R.
+- **R8 since 2.8**: `isMinifyEnabled = true`, `isShrinkResources = true`, `proguard-android-optimize.txt` + `app/proguard-rules.pro`. **`-dontobfuscate`**: names stay readable for crash reports (AppLog finds the app's lines by "com.sparky") and the activity log. The libraries ship their own keep rules; NanoHTTPD and OkHttp's optional TLS providers only need `-dontwarn`. `DebugProbesKt.bin` and `kotlin-tooling-metadata.json` are excluded. Lint does not fail the build. `gradle.properties` sets `-Xmx3g`, AndroidX and non-transitive R.
 - No Jetpack Navigation, Room or Hilt. The app keeps its own small screen stack, SharedPreferences, and a hand-written binary cache.
 
 ## 2. Manifest
@@ -49,6 +49,8 @@ data/
                          EpgEntry, AccountInfo, Library, RecentItem, Progress
   Names.kt               region prefix parsing, strip, divider rows, event badges, region labels
   Prefs.kt               all SharedPreferences ("sparky")
+  Http.kt                (2.8) one OkHttp base client; Repository and PlayerHolder derive theirs with newBuilder()
+                         (shared connection pool and threads)
   Favorites.kt           (2.7) FavFolder + Favs: order/folder JSON, normalize, merge (reorder a filtered view), moveBy, name checks
   Backup.kt              (2.7) backup file format v1: create, read (checks + decrypt), apply (one commit), PBKDF2 + AES-GCM
   SecretBox.kt           Keystore AES-GCM for the saved login; one-time tokens for the phone pages
@@ -65,13 +67,18 @@ player/
   PlaybackErrors.kt      HTTP code from a player error → clear message (SPEC §7.8), log detail, account-problem check
   SubtitleStyle.kt       SubStyle (options, encode/decode, apply to a SubtitleView) + SubtitleStyleState (shared Compose state)
 setup/
-  SetupServer.kt         NanoHTTPD login form server (8080–8090); Net.localIp; Qr.bitmap
+  SetupServer.kt         setup pages (login form, restore) on a PhoneServer (8080–8090); Net.localIp; Qr.bitmap
   SetupPage.kt           phone HTML (form/done)
-  LogServer.kt           NanoHTTPD diagnostics page (8091–8099)
-  PhoneServer.kt         (2.7) NanoHTTPD for one phone page (8100–8110): key check (401), 10-min expiry, lock, body/form/download
+  LogServer.kt           diagnostics page on a PhoneServer (8091–8099)
+  PhoneServer.kt         (2.7; shared by every phone page since 2.8) NanoHTTPD: key check (401), 2 MB body limit (413),
+                         expiry fixed or sliding (403), lock, body/form/download, port ranges
   PhonePages.kt          (2.7) phone HTML: backup, restore, favorites folders editor
 ui/
   App.kt                 theme, screen switch, Home shell, NavRail, toast
+  UiModels.kt            (2.8, moved from AppViewModel.kt) Screen, PlayRequest, VodItem, GroupItem, LiveIndex, MoveSession,
+                         FavMenuRequest and the group / list constants
+  PhoneFeatures.kt       (2.8, moved from AppViewModel) backup, restore and favorites-folder phone pages; restore logic
+                         shared with setup; reconcileRestore
   AppViewModel.kt        all state + actions (see §5)
   components/Theme.kt    tokens C, Inter, units u/su, T, Label, FocusItem, FocusCard, Icon, ProgressBar, Clock, formatters, monogram
   components/Pieces.kt   ChannelLogo, Poster, PlayerSurface, Toast
@@ -84,8 +91,8 @@ ui/
                          FavoritesUi (2.7: favourite menu, folder checklist, Move helpers, Favorite folders screen,
                          Back up / Restore screen)
 assets/  changelog.json, about.json
-res/     drawable/*.xml icons, drawable-nodpi/{logo,avatar}.png + sparky.jpg, drawable-xhdpi/banner.png, mipmap-*/ic_launcher.png,
-         font/inter_*.otf, values/{strings,themes}.xml, xml/file_paths.xml
+res/     drawable/*.xml icons, drawable-nodpi/{logo,avatar}.webp + sparky.jpg, drawable-xhdpi/banner.webp, mipmap-*/ic_launcher.webp,
+         font/inter_*.otf (trimmed, see §1), values/{strings,themes}.xml, xml/file_paths.xml
 (no keystore in the repo)  the signing key is in GitHub Actions secrets (see §9) — it must be reused so updates install
 ```
 
@@ -163,6 +170,13 @@ res/     drawable/*.xml icons, drawable-nodpi/{logo,avatar}.png + sparky.jpg, dr
 - **`regionsClosed`** (2.7): the region headings closed in the group lists.
 - **`init {}` must be the last block in the class.** It calls `load()`, which reads properties declared above. Putting it first caused a null crash in 2.1 development.
 
+- **Performance rules (2.8)**:
+  - `Prefs.playlist` keeps the decrypted login in memory after the first read (cleared on set), and `SecretBox` keeps the Keystore key. Before, every channel row and guide cell decrypted it through the Keystore on the UI thread. Use `prefs.isXtream` for type checks.
+  - `LiveIndex.byCat` (built lazily) gives a group's channels without scanning the library; "All my channels" is filtered once per library and region choice; `channelKeys()` keeps the lazy-list keys of the last two big lists (over 2,000 channels).
+  - Recently watched and favorites look items up in the id maps (`channelForKey`, …), never with `firstOrNull` over the library.
+  - Search runs on `Dispatchers.Default` after a 250 ms pause.
+- Since 2.8 `AppViewModel.kt` holds only the ViewModel; the types live in `UiModels.kt` and the phone pages in `PhoneFeatures.kt`. Members `PhoneFeatures` needs are `internal` (setLib, resetTo, saveFavs, lookup, present, reloadFromPrefs, clearEpg).
+
 ## 6. Storage (`SharedPreferences "sparky"`)
 
 | Key | Value |
@@ -202,6 +216,7 @@ data: login {type,name,url,user,pass}              (only when Login is ticked; t
       tracks {trk:…}, trk_order, tiles {tiles:…}
       history {pos {pos:…}, slast {slast:…}, recents "<json>"}
 ```
+- **Limits on restore (2.8)**: `Backup.MAX_*` (5,000 favorites, 100 folders, 2,000 resume points and last episodes, 50 tile keys; track choices capped at `Prefs.MAX_TRACK_CHOICES` = 200 using the file's `trk_order`). New backups need a passphrase of `Backup.MIN_PASSPHRASE` = 10 characters; older files with shorter ones still restore.
 - Encryption: `Base64(salt 16 + IV 12 + AES-256-GCM ciphertext)`, key = PBKDF2-HMAC-SHA256(passphrase, salt, **210,000** rounds, 32 bytes). PBKDF2 is written out with `HmacSHA256` because `PBKDF2WithHmacSHA256` needs Android 8 (minSdk is 23). About 1 s on the TV.
 - Never in the file: account status, caches, logs, `last_refresh`, `catchup_scanned`, `regions_prompted`, `last_channel`, tokens.
 - Apply: everything is checked first, then written in one `commit()`. **Add** merges favourites (union; your order first, then the file's), folders by name (case-insensitive), resume points (newer timestamp wins), last episodes (only missing ones) and recents (by time, top 12); settings are replaced. **Replace** removes the included keys first.
