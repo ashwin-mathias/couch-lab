@@ -13,6 +13,7 @@ Tick each box. Note the build number at the top of the run.
 - [ ] A4. The first install attempt opens the "install unknown apps" screen. After allowing it and pressing Back, install downloads (showing MB) and opens Android's installer.
 - [ ] A6. (2.5.2) An update installs only when the release has `sparky-iptv.apk.sha256`. Remove that file from a test release: no update toast. Edit the file's contents: Install shows "Update failed: The update failed its integrity check…" and nothing installs.
 - [ ] A5. Check for updates on the latest build shows "You have the latest version".
+- [ ] A7. (2.7.1) After the update, the Google TV home screen (banner and app icon), the nav rail logo, Setup and Loading all show the **black squirrel** on the TV. (The launcher may keep the old picture until the TV home screen refreshes; a restart of the TV clears it.)
 
 ## B. Setup
 - [ ] B1. A fresh install opens Setup with a QR code and an address. The phone camera opens the form.

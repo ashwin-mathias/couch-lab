@@ -140,9 +140,9 @@ Usage:
 ### Image assets (copy the binaries; they can't be regenerated from text)
 | File | Size | Content |
 |---|---|---|
-| `drawable-nodpi/logo.png` | 256² RGBA | Rounded-square illustration: a smiling golden Labrador-style dog at a wooden desk, with a wall-mounted TV showing a squirrel and a red "BRK ..NEWS!!" banner, on a warm cream background. Used in the nav rail (48, radius 12), Setup (44, radius 11) and Loading (140, radius 32). |
-| `drawable-xhdpi/banner.png` | 320×180 | The Android TV launcher banner: the logo on the left, with "Sparky" (white) and "IPTV" (accent coral) in bold sans on near-black. |
-| `mipmap-*/ic_launcher.png` | 48–192 | The launcher icon (the same art as the logo). |
+| `drawable-nodpi/logo.png` | 256² RGBA | Rounded-square illustration: a smiling golden Labrador-style dog at a wooden desk, with a wall-mounted TV showing a **black squirrel** (charcoal `#2C2C30`, grey belly, white eye glint; brown until 2.7) on a brown branch, and a red "BRK ..NEWS!!" banner, on a warm cream background. Used in the nav rail (48, radius 12), Setup (44, radius 11) and Loading (140, radius 32). |
+| `drawable-xhdpi/banner.png` | 320×180 | The Android TV launcher banner: the logo (with the black squirrel) on the left, with "Sparky" (white) and "IPTV" (accent coral) in bold sans on near-black. |
+| `mipmap-*/ic_launcher.png` | 48–192 | The launcher icon (the same art as the logo). The 192 px file is the master; the smaller sizes are Lanczos downscales of it. |
 | `drawable-nodpi/avatar.png` | 320² | The author's avatar (the cartoon dog at a desk) for the About page (64, circle). |
 | `drawable-nodpi/sparky.jpg` | 512² | Photo of Sparky, a yellow Labrador, face centred against a blue sky (2.5). About page, 96 circle, crop. |
 | `res/font/inter_*.otf` | — | Inter 400/500/600/700. |

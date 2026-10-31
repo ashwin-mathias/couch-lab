@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.7.1",
+    "date": "2026-10-31",
+    "title": "A black squirrel on Sparky's TV",
+    "notes": [
+      "New app icon: the squirrel on Sparky's TV is now a black squirrel. The launcher icon, the TV banner and the logo inside the app all match."
+    ]
+  },
+  {
     "version": "2.7",
     "date": "2026-10-31",
     "title": "Favorites your way, folders, backup and restore",

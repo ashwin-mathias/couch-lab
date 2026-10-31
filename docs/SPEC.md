@@ -1,6 +1,6 @@
 # Sparky IPTV — Product specification
 
-Version described: **2.7** (October 2026). This file says **what the app does**. How it looks is in [DESIGN.md](DESIGN.md), how it's built in [ARCHITECTURE.md](ARCHITECTURE.md), and how to prove it works in [ACCEPTANCE.md](ACCEPTANCE.md).
+Version described: **2.7.1** (October 2026). This file says **what the app does**. How it looks is in [DESIGN.md](DESIGN.md), how it's built in [ARCHITECTURE.md](ARCHITECTURE.md), and how to prove it works in [ACCEPTANCE.md](ACCEPTANCE.md).
 
 Words used: in quoted on-screen text, `␣` marks a space that must be kept (hint lines use three spaces around each `·`; meta lines join with `   ·   `). **must** = required; **should** = strong default. "OK" = the remote's centre button. ◀ ▶ ▲ ▼ = D-pad. "Hold OK" = press longer than 600 ms.
 

@@ -8,6 +8,7 @@ Why the app is the way it is. Read this before changing behaviour, so settled qu
 
 | Version | Decision | Reason |
 |---|---|---|
+| 2.7.1 | **The squirrel on the TV in the icon is black**, not brown (launcher icon, banner, in-app logo) | Ashwin's request |
 | 2.7 | **The Groups pane keeps focus**: moving between groups shows the channels after 300 ms but never moves focus; ▶ / OK enters the channel list, ◀ comes back to the selected group | Pausing on a group jumped focus to the channel pane (Ashwin's screenshots) |
 | 2.7 | **Collapsible region headings** (OK opens or closes; remembered; shared with the Guide picker) | Ashwin chose this over a separate Regions column or a flat list; it keeps the current layout |
 | 2.7 | **Favorites in your own order**, reordered on the TV with **Hold OK → Move**; first start keeps the provider's order | Ashwin wanted to reorder favorites |
