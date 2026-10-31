@@ -29,12 +29,16 @@ To update, repeat step 4. The code always points to the newest build. Your login
 
 | Where | Button | Does |
 | --- | --- | --- |
-| Any list | Hold OK | Add / remove favorite |
+| Any list | Hold OK | Add a favorite; on a favorite: menu with Move · Folders… · Remove |
+| Moving a favorite | Arrows / OK / Back | Move it / drop it / put it back |
+| Live TV groups | ▶ or OK | Go to the channels (moving between groups never jumps there by itself) |
+| Live TV groups | OK on a region heading | Open or close the region |
+| Live TV channels | ◀ | Back to the selected group |
 | Full-screen live TV | ▲ / ▼ | Next / previous channel |
 | Full-screen live TV | OK | Pause / play (catch-up channels resume from where you paused) |
 | Full-screen live TV | ◀ or Back | Back to the page you came from |
 | Full-screen live TV | ▶ | Audio & subtitles |
-| Full-screen live TV | Hold OK | Add / remove favorite |
+| Full-screen live TV | Hold OK | Add a favorite; on a favorite: menu with Folders… · Remove |
 | Live TV, paused or behind live | ◀ / ▶ | Rewind / forward (hold to go faster) |
 | Live TV, paused or behind live | ▼ | Buttons: Start of show, Go live, Audio & subtitles, Sleep |
 | Live TV, paused or behind live | Back | Leave |

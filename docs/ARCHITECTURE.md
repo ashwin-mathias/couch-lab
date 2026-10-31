@@ -49,6 +49,8 @@ data/
                          EpgEntry, AccountInfo, Library, RecentItem, Progress
   Names.kt               region prefix parsing, strip, divider rows, event badges, region labels
   Prefs.kt               all SharedPreferences ("sparky")
+  Favorites.kt           (2.7) FavFolder + Favs: order/folder JSON, normalize, merge (reorder a filtered view), moveBy, name checks
+  Backup.kt              (2.7) backup file format v1: create, read (checks + decrypt), apply (one commit), PBKDF2 + AES-GCM
   SecretBox.kt           Keystore AES-GCM for the saved login; one-time tokens for the phone pages
   Xtream.kt              XtreamClient (player_api.php), URL normalising, getText, JSONObject.s(), Parsers (detail/EPG JSON)
   StreamParsers.kt       streaming JsonReader parsers for the big lists (categories, live, movies, series)
@@ -66,6 +68,8 @@ setup/
   SetupServer.kt         NanoHTTPD login form server (8080–8090); Net.localIp; Qr.bitmap
   SetupPage.kt           phone HTML (form/done)
   LogServer.kt           NanoHTTPD diagnostics page (8091–8099)
+  PhoneServer.kt         (2.7) NanoHTTPD for one phone page (8100–8110): key check (401), 10-min expiry, lock, body/form/download
+  PhonePages.kt          (2.7) phone HTML: backup, restore, favorites folders editor
 ui/
   App.kt                 theme, screen switch, Home shell, NavRail, toast
   AppViewModel.kt        all state + actions (see §5)
@@ -76,7 +80,9 @@ ui/
                          GuideScreen, VodScreens (Movies, Series, MovieDetail, PosterTile), SeriesDetailScreen,
                          SearchSettings, RegionsScreen, LoadingScreen, SetupScreens (+PillButton), DiagnosticsScreen,
                          AboutScreen, PlayerScreen (LivePlayer, VodPlayer, TrackPanel),
-                         SubtitleStyleScreen (screen, SubtitleStyleOptions shared with TrackPanel, preview)
+                         SubtitleStyleScreen (screen, SubtitleStyleOptions shared with TrackPanel, preview),
+                         FavoritesUi (2.7: favourite menu, folder checklist, Move helpers, Favorite folders screen,
+                         Back up / Restore screen)
 assets/  changelog.json, about.json
 res/     drawable/*.xml icons, drawable-nodpi/{logo,avatar}.png + sparky.jpg, drawable-xhdpi/banner.png, mipmap-*/ic_launcher.png,
          font/inter_*.otf, values/{strings,themes}.xml, xml/file_paths.xml
@@ -150,6 +156,11 @@ res/     drawable/*.xml icons, drawable-nodpi/{logo,avatar}.png + sparky.jpg, dr
 - **Sleep timer (2.6)**: `sleepMinutes` (0 = off), `sleepEndsAt` (`SystemClock.elapsedRealtime`), and a `viewModelScope` job. `setSleep(m)` starts, restarts or cancels it. In memory only, so closing the app clears it.
   - The job wakes 1 min before the end for the warning toast (`SLEEP_WARNING`), then each second; at the end `sleepFinished()` calls `PlayerHolder.release()`, sets `PlayerHolder.held`, pops a `Screen.Player`, toasts and logs.
   - `MainActivity.dispatchKeyEvent` passes every key to `vm.onAnyKey` first. Any key clears `PlayerHolder.held`. In the last minute a key restarts the timer and is swallowed (down and up), so it doesn't also pause or change channel.
+- **Favorites (2.7)**: `favorites` (set), `favOrder` (all keys, your order), `folders`. `keysFor(listId)` returns a list's keys in display order (`all:live`, `all:movie`, `all:series`, `folder:<id>`, `folders`), or the moving order while something moves. Until `fav_order` is first saved, lists keep the provider's order (`favOrderSaved`); `onLibraryComplete()` saves it once channels, movies and series are loaded, then runs `reconcileRestore()`.
+  - `holdFavorite(key, label, moveList, upDown, leftRight)`: adds, or stores a pending `FavMenuRequest`; `onAnyKey` opens it (`favMenu`) on the OK **release**, after the item has seen the release.
+  - `moving: MoveSession?`: while set, `onAnyKey` swallows every key: arrows call `moveStep`, OK up `commitMove` (merges the visible order into the full list with `Favs.merge`), Back up `cancelMove`. Lists key items by favourite key, so the focused item keeps focus as it moves; `FollowMove` keeps it on screen.
+- **Phone pages (2.7)**: `startPhonePage(BACKUP | RESTORE | FAVORITES)` / `stopPhonePage()`, `phoneUrl`. Requests run on the server thread; anything touching state uses `runBlocking(Dispatchers.Main)`, logins are checked on IO. `restoreRequest` is shared with the setup server (first-run restore); a backup without a login waits in `pendingRestore` until the login is sent.
+- **`regionsClosed`** (2.7): the region headings closed in the group lists.
 - **`init {}` must be the last block in the class.** It calls `load()`, which reads properties declared above. Putting it first caused a null crash in 2.1 development.
 
 ## 6. Storage (`SharedPreferences "sparky"`)
@@ -176,6 +187,25 @@ res/     drawable/*.xml icons, drawable-nodpi/{logo,avatar}.png + sparky.jpg, dr
 | `catchup_scanned` | bool |
 | `last_channel` | channel id |
 | `sleep_default` | (2.6) int minutes, 30, 60 or 90 (default 90): the sleep timer length focused first |
+| `fav_order` | (2.7) JSON array of all favourite keys in your order. Missing = before 2.7 (set from the provider's order once the library is loaded) |
+| `fav_folders` | (2.7) JSON `[{id, name, keys:[live:…]}]`; array order = folder order, `keys` order = order inside. Ids `f1`, `f2`… are local and stable |
+| `regions_closed` | (2.7) string set of region codes whose heading is closed (default empty = all open) |
+| `restore_pending` | (2.7) JSON `{names:{key:name}, total}` after a restore, until favourites are matched by name against the full library; then removed |
+
+### 6.1 Backup file (2.7, format `sparky-backup` v1)
+```
+{ "format": "sparky-backup", "version": 1, "app": "2.7 (build N)", "created": "2026-11-02T20:15:00-08:00",
+  "device": "TCL Google TV", "encrypted": true, "data": <object, or Base64 when encrypted> }
+data: login {type,name,url,user,pass}              (only when Login is ticked; then the file is encrypted)
+      favorites [{key,name}], fav_order, fav_folders, my_regions, regions_closed
+      playback {sub_style, sleep_default, vod_audio_lang, vod_text_lang, live_format, catchup_format},
+      tracks {trk:…}, trk_order, tiles {tiles:…}
+      history {pos {pos:…}, slast {slast:…}, recents "<json>"}
+```
+- Encryption: `Base64(salt 16 + IV 12 + AES-256-GCM ciphertext)`, key = PBKDF2-HMAC-SHA256(passphrase, salt, **210,000** rounds, 32 bytes). PBKDF2 is written out with `HmacSHA256` because `PBKDF2WithHmacSHA256` needs Android 8 (minSdk is 23). About 1 s on the TV.
+- Never in the file: account status, caches, logs, `last_refresh`, `catchup_scanned`, `regions_prompted`, `last_channel`, tokens.
+- Apply: everything is checked first, then written in one `commit()`. **Add** merges favourites (union; your order first, then the file's), folders by name (case-insensitive), resume points (newer timestamp wins), last episodes (only missing ones) and recents (by time, top 12); settings are replaced. **Replace** removes the included keys first.
+- Restoring a different login: checked with `validate`, then saved, saved data cleared and Loading restarted (1.5 s later, so the phone gets its answer first).
 
 Files in `filesDir`: `snap_*.bin`, `cache_m3u.json`, `app_log.txt`, `last_crash.txt`, `seen_crash.txt`. Cache: `cacheDir/dl_*.json` (temp) and `cacheDir/updates/sparky-iptv.apk`.
 
@@ -219,11 +249,16 @@ BackHandler(enabled = panelOpen) { panelOpen = false }   // registered last = hi
 - The sleep panel (2.6) works like the Audio & subtitles panel: `sleepOpen` makes the box ignore keys, has its own BackHandler, and focus returns to the box when it closes.
 
 ### Focus pattern (lists with headings, 2.6)
-Lists that mix focusable rows with non-focusable headings (guide grid, Live TV channel list, both group lists) **don't use Compose's default ▲/▼ focus search**. `ui/components/ListNav.kt`:
+Lists that mix focusable rows with non-focusable headings (guide grid, Live TV channel list) **don't use Compose's default ▲/▼ focus search**. In 2.7 the region headings in both group lists became focusable rows (they open and close), and the group lists still move with `ListNav.step`. `ui/components/ListNav.kt`:
 - `stableKeys(items) { it.id }`: lazy keys are the item id (repeats get `#2`, `#3`), never `"$index:$id"`, so a row keeps focus when the list recomposes.
 - Each row handles ▲/▼ in `onPreviewKeyEvent` (`verticalKeys`) and calls `ListNav.step`: find the next focusable index, `LazyListState.reveal(index, down, ~2 rows)` (scroll so it's visible with context; `scrollToItem` first if it isn't composed), then request focus on it, retrying for up to 12 frames until the row's onFocus reports its key. Otherwise it logs "<where> focus: expected row X, got Y".
 - Repeats arriving while a move is settling are dropped, so holding a key never skips rows.
 - The guide registers one function per composed row (`rowCells[key]`) that focuses the cell covering a time and returns its start; an anchor keeps the time across consecutive ▲/▼. Guide cells are drawn in one positional loop, so the "Loading…" cell and the first show are the same composable and keep focus when data arrives.
+
+### Focus between panes (Live TV, 2.7)
+- `LiveFocus` holds `entry` (a FocusRequester on the channel the list starts on), `focusSelectedGroup()` (set by the group list: reveal, then focus the selected group or its closed heading) and `focusVisible()` (set by the channel list: the first channel on screen).
+- **No effect may move focus because data changed.** The channel list used to run `LaunchedEffect(channels) { requestFocus() }`; since focusing a group changes the channels, it pulled focus out of the Groups pane. Now only explicit actions move focus: opening Live TV, ▶ / OK on a group, ◀ from a channel.
+- The channel pane follows the focused group after 300 ms without a key, and is keyed by group so each group opens at its own start position.
 
 ## 8. Logging and privacy
 - `AppLog.setSecrets(pass, user)` is called before any network call. Every line passes through `redact`, which replaces each secret with `•••`.

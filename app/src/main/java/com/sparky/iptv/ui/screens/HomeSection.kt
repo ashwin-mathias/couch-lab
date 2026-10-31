@@ -21,6 +21,11 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.font.FontWeight
 import com.sparky.iptv.ui.AppViewModel
 import com.sparky.iptv.ui.CAT_RECENT
+import com.sparky.iptv.ui.LIST_LIVE
+import com.sparky.iptv.ui.LIST_MOVIE
+import com.sparky.iptv.ui.LIST_SERIES
+import com.sparky.iptv.ui.folderList
+import androidx.compose.foundation.lazy.rememberLazyListState
 import com.sparky.iptv.ui.Screen
 import com.sparky.iptv.ui.Section
 import com.sparky.iptv.ui.components.C
@@ -41,9 +46,13 @@ private val ROW_PADDING = PaddingValues(start = 8.u, end = 48.u, top = 8.u, bott
 fun HomeSection(vm: AppViewModel) {
     val now = rememberNow()
     val recents = remember(vm.recents, vm.library) { vm.recentEntries() }
-    val favChannels = remember(vm.library, vm.favorites) { vm.library.channels.filter { it.favKey in vm.favorites } }
-    val favMovies = remember(vm.library, vm.favorites) { vm.library.movies.filter { it.favKey in vm.favorites } }
-    val favSeries = remember(vm.library, vm.favorites) { vm.library.series.filter { it.favKey in vm.favorites } }
+    val favChannels = remember(vm.library, vm.favorites, vm.favOrder, vm.moving) { vm.favChannels() }
+    val favMovies = remember(vm.library, vm.favorites, vm.favOrder, vm.moving) { vm.favMovies() }
+    val favSeries = remember(vm.library, vm.favorites, vm.favOrder, vm.moving) { vm.favSeries() }
+    // One row per folder that has channels, in your folder order.
+    val folderRows = remember(vm.library, vm.favorites, vm.folders, vm.moving) {
+        vm.folders.map { it to vm.folderChannels(it.id) }.filter { it.second.isNotEmpty() }
+    }
     val newMovies = remember(vm.library, vm.myRegions) { vm.moviesFor(CAT_RECENT).take(20) }
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(200); runCatching { first.requestFocus() } }
@@ -81,29 +90,55 @@ fun HomeSection(vm: AppViewModel) {
             }
         }
 
-        // 1. Favorites: channels (live tiles), then movies and series.
+        // 1. Favorites: channels (live tiles), then movies and series, each in your order.
         if (hasFavs) {
-            item {
+            item(key = "fav") {
                 HomeRow("Favorites") {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(20.u), contentPadding = ROW_PADDING) {
-                        itemsIndexed(favChannels, key = { idx, c -> "c$idx:${c.id}" }) { i, ch ->
-                            ChannelTile(vm, ch, now, 220.u, modifier = focusMod("fav", i), livePreview = true,
-                                onClick = { vm.playLive(favChannels, i) })
+                    val rowState = rememberLazyListState()
+                    FollowMove(vm, LIST_LIVE, rowState) { k -> favChannels.indexOfFirst { it.favKey == k } }
+                    FollowMove(vm, LIST_MOVIE, rowState) { k -> favMovies.indexOfFirst { it.favKey == k }.let { if (it < 0) -1 else favChannels.size + it } }
+                    FollowMove(vm, LIST_SERIES, rowState) { k ->
+                        favSeries.indexOfFirst { it.favKey == k }.let { if (it < 0) -1 else favChannels.size + favMovies.size + it }
+                    }
+                    LazyRow(state = rowState, horizontalArrangement = Arrangement.spacedBy(20.u), contentPadding = ROW_PADDING) {
+                        itemsIndexed(favChannels, key = { _, c -> c.favKey }) { i, ch ->
+                            ChannelTile(vm, ch, now, 220.u, modifier = focusMod("fav", i).movingOutline(vm.moving?.key == ch.favKey && vm.moving?.listId == LIST_LIVE), livePreview = true,
+                                onClick = { vm.playLive(favChannels, i) },
+                                onLongClick = { vm.holdFavorite(ch.favKey, ch.display, LIST_LIVE, upDown = 0, leftRight = 1) })
                         }
-                        itemsIndexed(favMovies, key = { idx, x -> "m$idx:${x.id}" }) { i, mv ->
-                            Column(focusMod("fav", favChannels.size + i)) {
+                        itemsIndexed(favMovies, key = { _, x -> x.favKey }) { i, mv ->
+                            Column(focusMod("fav", favChannels.size + i).movingOutline(vm.moving?.key == mv.favKey)) {
                                 PosterCard(mv.name, mv.poster, 132.u, true,
                                     progress = vm.progress(mv.progressKey)?.fraction,
                                     onClick = { vm.push(Screen.MovieDetail(mv)) },
-                                    onLongClick = { vm.toggleFavorite(mv.favKey, mv.name) })
+                                    onLongClick = { vm.holdFavorite(mv.favKey, mv.name, LIST_MOVIE, upDown = 0, leftRight = 1) })
                             }
                         }
-                        itemsIndexed(favSeries, key = { idx, x -> "s$idx:${x.id}" }) { i, sr ->
-                            Column(focusMod("fav", favChannels.size + favMovies.size + i)) {
+                        itemsIndexed(favSeries, key = { _, x -> x.favKey }) { i, sr ->
+                            Column(focusMod("fav", favChannels.size + favMovies.size + i).movingOutline(vm.moving?.key == sr.favKey)) {
                                 PosterCard(sr.name, sr.cover, 132.u, true,
                                     onClick = { vm.push(Screen.SeriesDetail(sr)) },
-                                    onLongClick = { vm.toggleFavorite(sr.favKey, sr.name) })
+                                    onLongClick = { vm.holdFavorite(sr.favKey, sr.name, LIST_SERIES, upDown = 0, leftRight = 1) })
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 1b. Your favorites folders, one row each.
+        folderRows.forEach { (f, chans) ->
+            item(key = "folder-" + f.id) {
+                HomeRow(f.name) {
+                    val rowState = rememberLazyListState()
+                    val listId = folderList(f.id)
+                    FollowMove(vm, listId, rowState) { k -> chans.indexOfFirst { it.favKey == k } }
+                    LazyRow(state = rowState, horizontalArrangement = Arrangement.spacedBy(20.u), contentPadding = ROW_PADDING) {
+                        itemsIndexed(chans, key = { _, c -> c.favKey }) { i, ch ->
+                            ChannelTile(vm, ch, now, 220.u, modifier = Modifier.movingOutline(vm.moving?.key == ch.favKey && vm.moving?.listId == listId),
+                                livePreview = true,
+                                onClick = { vm.playLive(chans, i) },
+                                onLongClick = { vm.holdFavorite(ch.favKey, ch.display, listId, upDown = 0, leftRight = 1) })
                         }
                     }
                 }
@@ -125,12 +160,12 @@ fun HomeSection(vm: AppViewModel) {
                                     PosterCard(e.movie.name, e.movie.poster, 132.u, e.movie.favKey in vm.favorites,
                                         progress = vm.progress(e.movie.progressKey)?.fraction,
                                         onClick = { vm.push(Screen.MovieDetail(e.movie)) },
-                                        onLongClick = { vm.toggleFavorite(e.movie.favKey, e.movie.name) })
+                                        onLongClick = { vm.holdFavorite(e.movie.favKey, e.movie.name) })
                                 }
                                 is AppViewModel.RecentEntry.Sr -> Column(mod) {
                                     PosterCard(e.series.name, e.series.cover, 132.u, e.series.favKey in vm.favorites,
                                         onClick = { vm.push(Screen.SeriesDetail(e.series)) },
-                                        onLongClick = { vm.toggleFavorite(e.series.favKey, e.series.name) })
+                                        onLongClick = { vm.holdFavorite(e.series.favKey, e.series.name) })
                                 }
                             }
                         }
@@ -148,7 +183,7 @@ fun HomeSection(vm: AppViewModel) {
                             Column(focusMod("new", i)) {
                                 PosterCard(mv.name, mv.poster, 132.u, mv.favKey in vm.favorites,
                                     onClick = { vm.push(Screen.MovieDetail(mv)) },
-                                    onLongClick = { vm.toggleFavorite(mv.favKey, mv.name) })
+                                    onLongClick = { vm.holdFavorite(mv.favKey, mv.name) })
                             }
                         }
                     }

@@ -1,5 +1,18 @@
 [
   {
+    "version": "2.7",
+    "date": "2026-10-31",
+    "title": "Favorites your way, folders, backup and restore",
+    "notes": [
+      "Live TV: moving through the groups no longer jumps to the channels. Press ▶ or OK to go to the channels, ◀ to come back.",
+      "Region headings fold: press OK on UNITED STATES or INDIA to open or close it. The Guide's group picker does the same.",
+      "Put your favorites in your own order: hold OK on a favorite and choose Move.",
+      "Favorites folders (US News, India News…): hold OK on a favorite channel and choose Folders…, or edit them on your phone from Settings → Favorite folders. Folders also show as rows on Home.",
+      "Back up your login, favorites and settings to your phone, and restore them on any TV, also right after installing (Settings → Back up settings).",
+      "Hold OK on a favorite now opens a menu, so removing it takes two presses."
+    ]
+  },
+  {
     "version": "2.6",
     "date": "2026-10-31",
     "title": "Guide focus fix, sleep timer, tidier Settings",

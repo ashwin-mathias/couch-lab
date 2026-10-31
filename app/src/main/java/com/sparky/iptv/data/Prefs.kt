@@ -79,6 +79,26 @@ class Prefs(ctx: Context) {
     fun favorites(): Set<String> = sp.getStringSet("favorites", emptySet())?.toSet() ?: emptySet()
     fun saveFavorites(s: Set<String>) = sp.edit().putStringSet("favorites", HashSet(s)).apply()
 
+    /** Your order of favorites (all types); null until 2.7 first sets it. */
+    fun favOrder(): List<String>? = Favs.orderFromJson(sp.getString("fav_order", null))
+    fun saveFavOrder(order: List<String>) = sp.edit().putString("fav_order", Favs.orderToJson(order)).apply()
+
+    fun favFolders(): List<FavFolder> = Favs.foldersFromJson(sp.getString("fav_folders", null))
+    fun saveFavFolders(f: List<FavFolder>) = sp.edit().putString("fav_folders", Favs.foldersToJson(f).toString()).apply()
+
+    /** Region headings closed in the group lists (all open by default). */
+    fun regionsClosed(): Set<String> = sp.getStringSet("regions_closed", emptySet())?.toSet() ?: emptySet()
+    fun saveRegionsClosed(s: Set<String>) = sp.edit().putStringSet("regions_closed", HashSet(s)).apply()
+
+    /** Favorite names from a restored backup, used to find channels the provider renumbered. */
+    var restorePending: String?
+        get() = sp.getString("restore_pending", null)
+        set(v) = sp.edit().apply { if (v == null) remove("restore_pending") else putString("restore_pending", v) }.apply()
+
+    /** Raw access for backup and restore (see Backup). */
+    internal fun all(): Map<String, *> = sp.all
+    internal fun edit(): android.content.SharedPreferences.Editor = sp.edit()
+
     fun progress(key: String): Progress? {
         val parts = sp.getString("pos:$key", null)?.split(",") ?: return null
         if (parts.size != 3) return null

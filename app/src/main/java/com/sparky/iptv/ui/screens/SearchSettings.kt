@@ -128,7 +128,7 @@ fun SearchScreen(vm: AppViewModel) {
                     items(chans) { ch ->
                         FocusItem(
                             onClick = { vm.playLive(chans, chans.indexOf(ch)) },
-                            onLongClick = { vm.toggleFavorite(ch.favKey, ch.name) },
+                            onLongClick = { vm.holdFavorite(ch.favKey, ch.display) },
                             container = C.Panel,
                             modifier = Modifier.width(260.u).height(64.u),
                         ) { f ->
@@ -150,7 +150,7 @@ fun SearchScreen(vm: AppViewModel) {
                         Box(Modifier.width(140.u)) {
                             PosterTile(m.name, m.poster, m.favKey in vm.favorites,
                                 onClick = { vm.push(Screen.MovieDetail(m)) },
-                                onLongClick = { vm.toggleFavorite(m.favKey, m.name) })
+                                onLongClick = { vm.holdFavorite(m.favKey, m.name) })
                         }
                     }
                 }
@@ -164,7 +164,7 @@ fun SearchScreen(vm: AppViewModel) {
                         Box(Modifier.width(140.u)) {
                             PosterTile(s.name, s.cover, s.favKey in vm.favorites,
                                 onClick = { vm.push(Screen.SeriesDetail(s)) },
-                                onLongClick = { vm.toggleFavorite(s.favKey, s.name) })
+                                onLongClick = { vm.holdFavorite(s.favKey, s.name) })
                         }
                     }
                 }
@@ -232,6 +232,8 @@ fun SettingsScreen(vm: AppViewModel) {
                     else -> vm.myRegions.joinToString(", ") { com.sparky.iptv.data.Names.regionLabel(it) }
                 }
                 SettingRow("My regions", regionSummary) { vm.push(Screen.Regions(firstRun = false)) }
+                val nf = vm.folders.size
+                SettingRow("Favorite folders", if (nf == 0) "None yet" else if (nf == 1) "1 folder" else "$nf folders") { vm.push(Screen.FavFolders) }
                 val last = vm.prefs.lastRefresh
                 val ago = when {
                     vm.refreshing -> "Updating…"
@@ -256,6 +258,8 @@ fun SettingsScreen(vm: AppViewModel) {
 
                 GroupHeading("App")
                 SettingRow("Version", version) { vm.checkForUpdate(manual = true) }
+                SettingRow("Back up settings", "To your phone") { vm.push(Screen.BackupRestore(restore = false)) }
+                SettingRow("Restore settings", "From a backup file") { vm.push(Screen.BackupRestore(restore = true)) }
                 SettingRow("Diagnostics", "") { vm.push(Screen.Diagnostics) }
                 SettingRow("About Sparky IPTV", "") { vm.push(Screen.About) }
             }

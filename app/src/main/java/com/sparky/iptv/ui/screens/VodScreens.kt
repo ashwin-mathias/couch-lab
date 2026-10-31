@@ -157,7 +157,7 @@ fun MoviesScreen(vm: AppViewModel) {
                 image = m.poster,
                 fav = m.favKey in vm.favorites,
                 onClick = { vm.push(Screen.MovieDetail(m)) },
-                onLongClick = { vm.toggleFavorite(m.favKey, m.name) },
+                onLongClick = { vm.holdFavorite(m.favKey, m.name) },
             )
         }
     }
@@ -262,7 +262,7 @@ fun SeriesScreen(vm: AppViewModel) {
                 image = s.cover,
                 fav = s.favKey in vm.favorites,
                 onClick = { vm.push(Screen.SeriesDetail(s)) },
-                onLongClick = { vm.toggleFavorite(s.favKey, s.name) },
+                onLongClick = { vm.holdFavorite(s.favKey, s.name) },
             )
         }
     }

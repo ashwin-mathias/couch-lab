@@ -43,11 +43,11 @@ Tick each box. Note the build number at the top of the run.
 - [ ] E4. Channel and group names show without the "US|" prefix. `##### NEWS #####` rows show as headings and are never playable.
 
 ## F. Live TV
-- [ ] F1. Moving onto a group selects it without OK. The counts are right.
+- [ ] F1. Moving onto a group shows its channels after a short pause, without OK; focus stays on the group (2.7). The counts are right.
 - [ ] F2. Each channel row shows the now programme, time left and progress (when the provider has EPG).
 - [ ] F3. **The preview plays with sound** about 0.7 s after resting on a channel. It stops when leaving Live TV.
 - [ ] F4. OK goes to full screen **without the stream restarting** (handoff).
-- [ ] F5. Hold OK toggles the favourite with a toast. A short OK in full screen does nothing.
+- [ ] F5. Hold OK on a channel adds it ("Added to Favorites · hold OK again for folders"); hold OK on a favourite opens the menu (2.7). A short OK in full screen pauses (2.5).
 - [ ] F6. In full screen: ▲/▼ change channel, skipping dividers and wrapping; CH+/CH− do the same; the info bar shows for 5 s.
 - [ ] F7. In full screen, ◀ and Back both return to the previous page, and the preview keeps playing there.
 - [ ] F8. ▶ opens Audio & subtitles. Choosing a subtitle language works. Leaving and coming back to that channel restores it.
@@ -70,8 +70,43 @@ Tick each box. Note the build number at the top of the run.
 - [ ] F2a. In a group with divider rows, hold ▼ through the channel list: every channel in order, headings skipped, no jumps.
 - [ ] F2b. Hold ▼ through the Groups column across region headings: no jumps; the channel list follows each group.
 
+## F3. Live TV navigation (2.7)
+- [ ] F3a. Hold ▼ through all groups, and pause 2 s on several: **focus never leaves the Groups pane**; the channel pane follows each group.
+- [ ] F3b. ▶ and OK on a group enter the channel list at the last-watched channel in that group, otherwise the first. In a group you scrolled earlier, focus lands on a channel on screen.
+- [ ] F3c. ◀ from any channel (list) or a first-column tile returns to the selected group.
+- [ ] F3d. Back from full screen returns focus to the channel just watched.
+- [ ] F3e. OK on a region heading closes it (▸); ▲/▼ then skip its groups; OK opens it again (▾). ▶ opens a closed heading; on an open one ▶ goes to its first group.
+- [ ] F3f. Open/closed headings survive leaving Live TV and a restart, and match in the Guide's group picker.
+- [ ] F3g. Close the region of the selected group: focus stays on the heading, the heading shows as selected, and the channel pane doesn't change. ◀ from a channel then lands on that heading.
+
+## F4. Favorites order and folders (2.7)
+- [ ] F4a. Upgrade from 2.6: favorites appear in the same order as before, nothing lost (Live TV, Home, Favorites page).
+- [ ] F4b. Live TV → Favorites: hold OK on the 8th channel → Move → ▲ six times → OK: "Moved … to position 2". The order holds after leaving, after a restart, on Home, on the Favorites page and in the Guide.
+- [ ] F4c. Back during Move puts the item back ("Move cancelled"). While moving, no other key does anything.
+- [ ] F4d. The menu opens only after OK is released; the release doesn't press a menu row. Remove from favorites removes it (two presses in total).
+- [ ] F4e. Favorites page: Move in the list (▲▼), in tiles (◀▶ by one, ▲▼ by a row), and a movie in the poster row (◀▶). Home Favorites row: ◀▶.
+- [ ] F4f. Hold OK on a favorite channel → Folders… → New folder… "US News" → Create: it shows under Favorites in Live TV (count 1), in the Guide picker, and as a Home row. Add 2 more channels via Folders…: count 3.
+- [ ] F4g. A channel in two folders shows in both; removing it from Favorites removes it from both.
+- [ ] F4h. Full screen from a folder: ▲/▼ stay inside the folder, in its order.
+- [ ] F4i. Settings → Favorite folders: create, rename ("There's already a folder called …" for a duplicate), Move, and Delete (two presses; channels stay in Favorites). Home rows follow the folder order.
+- [ ] F4j. An empty folder has no Home row but shows in Live TV with count 0 and its empty text.
+- [ ] F4k. Phone page (Favorite folders QR): create "India News", add channels with the search box, reorder with ↑ ↓, reorder All favorite channels, Save: the TV shows "Favorites updated from your phone" and updates without a restart. A blank or duplicate name shows an error on the phone and changes nothing.
+
+## F5. Backup and restore (2.7) — TCL dongle, iPhone Safari, an Android phone
+- [ ] F5a. Settings → Back up settings, scan, all boxes ticked, passphrase twice → Download backup: the file `sparky-backup-YYYY-MM-DD.json` saves (Files on iPhone, Downloads on Android); the TV shows "Backup saved to your phone".
+- [ ] F5b. Opened in a text editor, the encrypted file shows no readable password, username or server.
+- [ ] F5c. Passphrase checks: under 6 characters, and two different passphrases, show their errors. Unticking Login hides the passphrase fields, and the file is plain JSON without a login.
+- [ ] F5d. Fresh install (uninstall, reinstall) → setup page → **Restore from a backup file** → file + passphrase → Restore: the TV logs in, loads, and opens Home with "Restored · N favorites · settings from …". Favorites (order and folders), regions (and open/closed headings), subtitle style, sleep timer default and track choices are back, with no typing on the TV.
+- [ ] F5e. Fresh install with a backup **without** the login: the phone returns to the login form with "Backup ready: …"; after Send to TV everything else is restored.
+- [ ] F5f. Wrong passphrase: "Wrong passphrase · 2 tries left", then 1; the third locks the page ("… scan the new QR code").
+- [ ] F5g. Existing install, **Add**: favorites merged with no duplicates, folders with the same name merged. **Replace**: favorites and folders match the file exactly.
+- [ ] F5h. A backup with a different login asks "This backup uses a different login (…)" and only replaces it after **Restore anyway**.
+- [ ] F5i. A favorite whose ID changed but whose name exists is restored by name; a gone one is reported: "41 of 43 favorites restored · 2 not found: …".
+- [ ] F5j. A damaged file, a non-Sparky JSON, and a file with `"version": 2` are refused with their messages; nothing changes.
+- [ ] F5k. The page stops working after leaving the TV screen, and after 10 minutes. Another device on the Wi-Fi without the key gets 401.
+
 ## H. Home, Favorites, Recent
-- [ ] H1. Home rows appear in the order Favorites, Recently watched, Recently added. Empty rows are hidden. The empty state appears with no data.
+- [ ] H1. Home rows appear in the order Favorites, your folders (2.7), Recently watched, Recently added. Empty rows are hidden. The empty state appears with no data.
 - [ ] H2. Home channel tiles play live with sound after 1 s.
 - [ ] H3. The Favorites page shows channels (tiles or list) plus movie/series posters, with a live preview pane on the right.
 - [ ] H4. The Recently watched page shows the last 12 items newest first. A channel appears after 10 s of watching.
@@ -144,7 +179,7 @@ Tick each box. Note the build number at the top of the run.
 - [ ] K4 (2.6). Settings shows PLAYBACK, LIBRARY, ACCOUNT and APP with single-line rows (value on the right) and fits on screen without scrolling (no update pending). All rows are reachable with ▲/▼ in order, starting on Subtitle style.
 - [ ] K5 (2.6). Sleep timer default: ◀ ▶ change 30 / 60 / 90 (no wrap; focus stays on the row); OK steps 30 → 60 → 90 → 30. The value is kept after restarting the app.
 - [ ] K6 (2.6). Clear watch history: the first OK shows "Press OK again to clear", which goes back after 3 s; two OKs within 3 s clear with "Watch history cleared".
-- [ ] K7 (2.6). Version shows "2.6 (build N)"; OK checks for updates with the usual toasts. With an update pending, the update row is on top and focused first.
+- [ ] K7 (2.6). Version shows "2.7 (build N)"; OK checks for updates with the usual toasts. With an update pending, the update row is on top and focused first.
 
 ## L0. Phone pages and stored login (2.5.2)
 - [ ] L0a. Scanning the Setup QR opens "Connect your TV". Typing the IP and port without `?k=…`, or with a wrong key, shows "Scan the QR code on your TV to open this page." (403). Same for the Diagnostics QR.
@@ -187,4 +222,5 @@ Tick each box. Note the build number at the top of the run.
 | R18 | 2.5 | Copy everything did nothing on the phone (http page) | Copy pastes the full log; Select all works |
 | R19 | 2.5.2 | Setup and log pages open to anyone on the Wi-Fi; login in plain text; update not verified | See L0a–L0d and A6 |
 | R20 | 2.5 | **TV Guide: scrolling down with ▼, focus sometimes jumped to an unexpected place** (across divider rows, or to rows not yet on screen) | G5–G8, F2a, F2b |
+| R21 | 2.6 | **Live TV: scrolling down the Groups pane, focus sometimes jumped to the channel pane** (the channel list took focus 150 ms after each group change) | F3a, F3g |
 | R15 | 2.4 | Vague "This channel isn't playing right now." with no reason | Play on 2 devices: the message names the code (509) and the fix |

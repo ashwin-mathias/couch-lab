@@ -46,6 +46,17 @@ import com.sparky.iptv.ui.AppViewModel
 import com.sparky.iptv.ui.GROUP_ACTION_ALL_REGIONS
 import com.sparky.iptv.ui.GROUP_FAV
 import com.sparky.iptv.ui.GROUP_RECENT
+import com.sparky.iptv.ui.GROUP_FOLDER
+import com.sparky.iptv.data.AppLog
+import androidx.compose.runtime.key
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import com.sparky.iptv.ui.components.reveal
+import kotlinx.coroutines.launch
 import com.sparky.iptv.ui.GroupItem
 import com.sparky.iptv.ui.GroupKind
 import com.sparky.iptv.ui.components.Badge
@@ -72,25 +83,67 @@ import kotlinx.coroutines.delay
 /** Group list shared by Live TV and the guide, recomputed only when something it depends on changes. */
 @Composable
 fun liveGroups(vm: AppViewModel): List<GroupItem> =
-    remember(vm.library, vm.favorites, vm.myRegions, vm.showAllRegions, vm.recents) { vm.groupItems() }
+    remember(vm.library, vm.favorites, vm.folders, vm.myRegions, vm.showAllRegions, vm.recents, vm.regionsClosed) { vm.groupItems() }
 
 /** Lists where the tile/list toggle is offered. */
-private fun toggleable(group: String) = group == GROUP_FAV || group == GROUP_RECENT
+private fun toggleable(group: String) =
+    group == GROUP_FAV || group == GROUP_RECENT || group.startsWith(GROUP_FOLDER)
+
+/** ◀ handler for rows that hand focus back to the group list. */
+fun Modifier.leftKey(onLeft: () -> Boolean): Modifier = onPreviewKeyEvent { ev ->
+    ev.type == KeyEventType.KeyDown && ev.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT && onLeft()
+}
+
+/**
+ * Focus between the Groups pane and the channel pane. The channel list never takes focus on its
+ * own: only ▶ / OK on a group, coming back from full screen, or opening Live TV move focus into it.
+ */
+class LiveFocus {
+    /** On the channel the list starts on (last watched in this group, else the first). */
+    val entry = FocusRequester()
+    /** Set by the group list: focuses the selected group (or its region heading). */
+    var focusSelectedGroup: () -> Unit = {}
+    /** Set by the channel list: focuses the first channel on screen (when the start channel is scrolled away). */
+    var focusVisible: () -> Boolean = { false }
+}
 
 @Composable
 fun LiveScreen(vm: AppViewModel) {
     val ctx = LocalContext.current
     val groups = liveGroups(vm)
     val group = vm.liveGroup
-    val channels = remember(vm.library, vm.favorites, group, vm.myRegions, vm.showAllRegions, vm.recents) { vm.channelsFor(group) }
+    val channels = remember(vm.library, vm.favorites, vm.favOrder, vm.folders, vm.moving, group, vm.myRegions, vm.showAllRegions, vm.recents) {
+        vm.channelsFor(group)
+    }
     var focused by remember { mutableStateOf<Channel?>(null) }
     val previewCh = focused ?: channels.firstOrNull { !it.divider }
     val tiles = toggleable(group) && vm.isTiles(group)
+    val lf = remember { LiveFocus() }
+    val scope = rememberCoroutineScope()
 
     PreviewDriver(vm, focused)
 
+    /** Moves focus into the channel list, once it's composed. Returns false if there's nothing to focus. */
+    suspend fun focusChannels(): Boolean {
+        repeat(15) { n ->
+            withFrameNanos { }
+            if (runCatching { lf.entry.requestFocus() }.isSuccess) return true
+            if (n >= 3 && lf.focusVisible()) return true
+        }
+        return false
+    }
+    fun enterChannels(id: String) {
+        vm.liveGroup = id
+        scope.launch { if (!focusChannels()) AppLog.w("Live TV: no channel to focus in ${groups.firstOrNull { it.id == id }?.name}") }
+    }
+    // Opening Live TV (or Back from full screen): start on the channel watched last.
+    LaunchedEffect(Unit) {
+        delay(150)
+        if (!focusChannels()) lf.focusSelectedGroup()
+    }
+
     Row(Modifier.fillMaxSize()) {
-        GroupList(vm, groups, group, modifier = Modifier.width(270.u))
+        GroupList(vm, groups, group, lf, onEnter = { enterChannels(it) }, modifier = Modifier.width(270.u))
         Box(Modifier.width(1.u).fillMaxHeight().background(C.Line))
         Column(Modifier.width(470.u).fillMaxHeight().padding(top = 28.u, start = 12.u, end = 12.u)) {
             Row(Modifier.padding(start = 10.u, end = 4.u, top = 2.u, bottom = 10.u).height(36.u), verticalAlignment = Alignment.CenterVertically) {
@@ -100,7 +153,7 @@ fun LiveScreen(vm: AppViewModel) {
                         onClick = { vm.setTiles(group, !tiles) },
                         container = C.Panel,
                         shape = RoundedCornerShape(999.u),
-                        modifier = Modifier.height(34.u),
+                        modifier = Modifier.height(34.u).leftKey { lf.focusSelectedGroup(); true },
                     ) { f ->
                         Row(Modifier.align(Alignment.Center).padding(horizontal = 12.u), verticalAlignment = Alignment.CenterVertically) {
                             Icon(if (tiles) R.drawable.ic_list else R.drawable.ic_tiles, tint = if (f) C.OnFocus else C.Text2, size = 15.u)
@@ -115,18 +168,22 @@ fun LiveScreen(vm: AppViewModel) {
             if (channels.isEmpty()) {
                 Box(Modifier.fillMaxSize().padding(24.u)) {
                     T(
-                        when (group) {
-                            GROUP_FAV -> "No favorites yet. Hold OK on any channel to add it here."
-                            GROUP_RECENT -> "Channels you watch will appear here."
+                        when {
+                            group == GROUP_FAV -> "No favorites yet. Hold OK on any channel to add it here."
+                            group.startsWith(GROUP_FOLDER) -> "No channels in this folder yet. Hold OK on a favorite channel and choose Folders…"
+                            group == GROUP_RECENT -> "Channels you watch will appear here."
                             else -> "No channels in this group."
                         },
                         size = 15, color = C.Muted, maxLines = 3,
                     )
                 }
-            } else if (tiles) {
-                TileGrid(vm, channels, onFocus = { focused = it })
             } else {
-                ChannelList(vm, channels, onFocus = { focused = it })
+                // A new list (and scroll position) per group, so it opens at its own start channel.
+                key(group, tiles) {
+                    val onLeft = { lf.focusSelectedGroup(); true }
+                    if (tiles) TileGrid(vm, channels, vm.moveListFor(group), lf, onLeft, onFocus = { focused = it })
+                    else ChannelList(vm, channels, vm.moveListFor(group), lf, onLeft, onFocus = { focused = it })
+                }
             }
         }
         Box(Modifier.width(1.u).fillMaxHeight().background(C.Line))
@@ -135,18 +192,45 @@ fun LiveScreen(vm: AppViewModel) {
 }
 
 @Composable
-private fun GroupList(vm: AppViewModel, groups: List<GroupItem>, selected: String, modifier: Modifier) {
+private fun GroupList(
+    vm: AppViewModel, groups: List<GroupItem>, selected: String, lf: LiveFocus,
+    onEnter: (String) -> Unit, modifier: Modifier,
+) {
     val selIndex = remember(groups, selected) { groups.indexOfFirst { it.id == selected }.coerceAtLeast(0) }
     val state = rememberLazyListState(initialFirstVisibleItemIndex = (selIndex - 3).coerceAtLeast(0))
     val keys = remember(groups) { stableKeys(groups) { it.id } }
-    // ▲ / ▼ move between groups, skipping region headings (see ListNav).
+    val scope = rememberCoroutineScope()
+    // ▲ / ▼ move row by row (headings included), scrolling first so focus never jumps (see ListNav).
     val nav = rememberListNav(state, "Groups", rowHeight = 46.u)
     fun move(i: Int, down: Boolean) = nav.step(
         from = i, down = down, size = groups.size,
-        focusable = { groups[it].kind != GroupKind.HEADER },
+        focusable = { true },
         keyAt = { keys[it] },
         describe = { k -> groups.getOrNull(keys.indexOf(k))?.name ?: "none" },
     )
+    // The channel pane follows the focused group once the remote settles, without moving focus.
+    var settle by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    fun preview(id: String) {
+        settle?.cancel()
+        settle = scope.launch { delay(300); vm.liveGroup = id }
+    }
+    fun enter(id: String) { settle?.cancel(); onEnter(id) }
+    lf.focusSelectedGroup = {
+        scope.launch {
+            val region = vm.regionOfGroup(vm.liveGroup)
+            var i = groups.indexOfFirst { it.id == vm.liveGroup }
+            if (i < 0 && region != null) i = groups.indexOfFirst { it.id == "hdr:$region" }
+            if (i < 0) i = 0
+            if (i in keys.indices) {
+                state.reveal(i, down = true, contextPx = 0f)
+                repeat(12) {
+                    runCatching { nav.requester(keys[i]).requestFocus() }
+                    withFrameNanos { }
+                    if (nav.focusedKey == keys[i]) return@launch
+                }
+            }
+        }
+    }
     Column(modifier.fillMaxHeight().padding(top = 28.u, start = 20.u, end = 16.u)) {
         Label("Groups", modifier = Modifier.padding(start = 10.u, top = 6.u, bottom = 14.u))
         LazyColumn(state = state, verticalArrangement = Arrangement.spacedBy(4.u), contentPadding = PaddingValues(bottom = 28.u)) {
@@ -154,13 +238,17 @@ private fun GroupList(vm: AppViewModel, groups: List<GroupItem>, selected: Strin
                 val key = keys[i]
                 val navMod = Modifier.focusRequester(nav.requester(key)).verticalKeys { down -> move(i, down) }
                 when (g.kind) {
-                    GroupKind.HEADER -> Row(
-                        Modifier.fillMaxWidth().padding(start = 10.u, end = 12.u, top = 18.u, bottom = 6.u),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Label(g.name, color = C.Text2, modifier = Modifier.weight(1f))
-                        T(Repository.fmt(g.count), size = 11, color = C.Dim)
-                    }
+                    GroupKind.HEADER -> RegionHeading(
+                        g,
+                        selected = !g.open && vm.regionOfGroup(selected) == g.region,
+                        onFocus = { nav.focusedKey = key },
+                        onToggle = { g.region?.let { vm.toggleRegionOpen(it) } },
+                        onRight = {
+                            if (!g.open) g.region?.let { vm.toggleRegionOpen(it) } else move(i, true)
+                            true
+                        },
+                        modifier = navMod.padding(top = 10.u),
+                    )
                     GroupKind.ACTION -> FocusItem(
                         onClick = {
                             if (g.id == GROUP_ACTION_ALL_REGIONS) vm.showAllRegions = !vm.showAllRegions
@@ -178,18 +266,25 @@ private fun GroupList(vm: AppViewModel, groups: List<GroupItem>, selected: Strin
                     GroupKind.GROUP -> {
                         val isSel = g.id == selected
                         FocusItem(
-                            onClick = { vm.liveGroup = g.id },
-                            onFocus = { nav.focusedKey = key; vm.liveGroup = g.id },
+                            onClick = { enter(g.id) },
+                            onFocus = { nav.focusedKey = key; preview(g.id) },
                             selected = isSel,
                             shape = RoundedCornerShape(10.u),
-                            modifier = navMod.fillMaxWidth().height(42.u),
+                            modifier = navMod
+                                .onPreviewKeyEvent { ev ->
+                                    if (ev.type == KeyEventType.KeyDown && ev.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT) {
+                                        enter(g.id); true
+                                    } else false
+                                }
+                                .padding(start = if (g.indent) 14.u else 0.u)
+                                .fillMaxWidth().height(42.u),
                         ) { f ->
                             Row(
                                 Modifier.fillMaxSize().padding(horizontal = 12.u),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 T(
-                                    g.name, size = 15,
+                                    g.name, size = if (g.indent) 14 else 15,
                                     weight = if (isSel || f) FontWeight.SemiBold else FontWeight.Normal,
                                     color = if (f) C.OnFocus else if (isSel) C.Text else C.Muted,
                                     modifier = Modifier.weight(1f),
@@ -205,8 +300,40 @@ private fun GroupList(vm: AppViewModel, groups: List<GroupItem>, selected: Strin
     }
 }
 
+/**
+ * A region heading in a group list: ▾ open / ▸ closed. OK opens or closes it; ▶ opens a closed
+ * heading, or on an open one moves to its first group ([onRight] decides).
+ */
 @Composable
-private fun ChannelList(vm: AppViewModel, channels: List<Channel>, onFocus: (Channel) -> Unit) {
+fun RegionHeading(
+    g: GroupItem, selected: Boolean, onFocus: () -> Unit, onToggle: () -> Unit, onRight: () -> Boolean,
+    modifier: Modifier = Modifier,
+) {
+    FocusItem(
+        onClick = onToggle,
+        onFocus = onFocus,
+        selected = selected,
+        shape = RoundedCornerShape(10.u),
+        modifier = modifier
+            .onPreviewKeyEvent { ev ->
+                ev.type == KeyEventType.KeyDown && ev.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT && onRight()
+            }
+            .fillMaxWidth().height(42.u),
+    ) { f ->
+        Row(Modifier.fillMaxSize().padding(horizontal = 12.u), verticalAlignment = Alignment.CenterVertically) {
+            T(if (g.open) "▾" else "▸", size = 14, color = if (f) C.OnFocus else C.Text2, modifier = Modifier.width(18.u))
+            Label(g.name, color = if (f) C.OnFocus else C.Text2, modifier = Modifier.weight(1f))
+            T(Repository.fmt(g.count), size = 11, color = if (f) C.OnFocusMuted else C.Dim)
+        }
+    }
+}
+
+@Composable
+private fun ChannelList(
+    vm: AppViewModel, channels: List<Channel>, moveList: String?, lf: LiveFocus,
+    onLeft: () -> Boolean, onFocus: (Channel) -> Unit,
+) {
+    val entry = lf.entry
     val now = rememberNow()
     // Start on the channel watched last, so coming back from full screen feels natural.
     val startIndex = remember(channels) {
@@ -214,11 +341,6 @@ private fun ChannelList(vm: AppViewModel, channels: List<Channel>, onFocus: (Cha
         if (i >= 0) i else channels.indexOfFirst { !it.divider }.coerceAtLeast(0)
     }
     val state = rememberLazyListState(initialFirstVisibleItemIndex = (startIndex - 3).coerceAtLeast(0))
-    val firstFocus = remember { FocusRequester() }
-    LaunchedEffect(channels) {
-        delay(150)
-        runCatching { firstFocus.requestFocus() }
-    }
     val keys = remember(channels) { stableKeys(channels) { it.id } }
     // ▲ / ▼ move channel by channel, skipping the provider's divider headings (see ListNav).
     val nav = rememberListNav(state, "Channel list", rowHeight = 68.u)
@@ -228,6 +350,11 @@ private fun ChannelList(vm: AppViewModel, channels: List<Channel>, onFocus: (Cha
         keyAt = { keys[it] },
         describe = { k -> channels.getOrNull(keys.indexOf(k))?.let { "${it.num} ${it.display}" } ?: "none" },
     )
+    FollowMove(vm, moveList, state) { k -> channels.indexOfFirst { it.favKey == k } }
+    lf.focusVisible = {
+        val i = state.layoutInfo.visibleItemsInfo.map { it.index }.firstOrNull { it in channels.indices && !channels[it].divider }
+        i != null && runCatching { nav.requester(keys[i]).requestFocus() }.isSuccess
+    }
     LazyColumn(
         state = state,
         verticalArrangement = Arrangement.spacedBy(4.u),
@@ -250,14 +377,16 @@ private fun ChannelList(vm: AppViewModel, channels: List<Channel>, onFocus: (Cha
             val (badge, title) = Names.event(ch.display)
             FocusItem(
                 onClick = { vm.playLive(channels, i) },
-                onLongClick = { vm.toggleFavorite(ch.favKey, ch.display) },
+                onLongClick = { vm.holdFavorite(ch.favKey, ch.display, moveList, upDown = 1) },
                 onFocus = { nav.focusedKey = keys[i]; onFocus(ch) },
                 modifier = Modifier
                     .focusRequester(nav.requester(keys[i]))
                     .verticalKeys { down -> move(i, down) }
+                    .leftKey(onLeft)
+                    .movingOutline(vm.moving?.key == ch.favKey)
                     .fillMaxWidth()
                     .height(64.u)
-                    .let { if (i == startIndex) it.focusRequester(firstFocus) else it },
+                    .let { if (i == startIndex) it.focusRequester(entry) else it },
             ) { f ->
                 Row(
                     Modifier.fillMaxSize().padding(horizontal = 14.u),
@@ -292,27 +421,41 @@ private fun ChannelList(vm: AppViewModel, channels: List<Channel>, onFocus: (Cha
 }
 
 @Composable
-private fun TileGrid(vm: AppViewModel, channels: List<Channel>, onFocus: (Channel) -> Unit) {
+private fun TileGrid(
+    vm: AppViewModel, channels: List<Channel>, moveList: String?, lf: LiveFocus,
+    onLeft: () -> Boolean, onFocus: (Channel) -> Unit,
+) {
+    val entry = lf.entry
+    val requesters = remember { HashMap<String, FocusRequester>() }
     val now = rememberNow()
     val playable = remember(channels) { channels.filter { !it.divider } }
-    val first = remember { FocusRequester() }
-    LaunchedEffect(playable) { delay(150); runCatching { first.requestFocus() } }
+    val start = remember(playable) { playable.indexOfFirst { it.id == vm.prefs.lastChannel }.coerceAtLeast(0) }
+    val state = rememberLazyGridState(initialFirstVisibleItemIndex = start)
+    FollowMoveGrid(vm, moveList, state) { k -> playable.indexOfFirst { it.favKey == k } }
+    lf.focusVisible = {
+        val i = state.layoutInfo.visibleItemsInfo.map { it.index }.firstOrNull { it in playable.indices }
+        i != null && runCatching { requesters.getOrPut(playable[i].favKey) { FocusRequester() }.requestFocus() }.isSuccess
+    }
     LazyVerticalGrid(
+        state = state,
         columns = GridCells.Fixed(3),
         horizontalArrangement = Arrangement.spacedBy(14.u),
         verticalArrangement = Arrangement.spacedBy(18.u),
         contentPadding = PaddingValues(start = 6.u, end = 6.u, top = 6.u, bottom = 28.u),
     ) {
-        items(playable.size, key = { "$it:" + (playable[it].id) }) { i ->
+        items(playable.size, key = { playable[it].favKey }) { i ->
             val ch = playable[i]
             ChannelTile(
                 vm, ch, now, width = null,
                 onClick = { vm.playLive(playable, i) },
+                onLongClick = { vm.holdFavorite(ch.favKey, ch.display, moveList, upDown = 3, leftRight = 1) },
                 modifier = Modifier
-                    .let { if (i == 0) it.focusRequester(first) else it }
+                    .focusRequester(requesters.getOrPut(ch.favKey) { FocusRequester() })
+                    .let { if (i == start) it.focusRequester(entry) else it }
+                    .let { if (i % 3 == 0) it.leftKey(onLeft) else it }
+                    .movingOutline(vm.moving?.key == ch.favKey)
                     .onFocusChanged { if (it.hasFocus) onFocus(ch) },
             )
         }
     }
 }
-

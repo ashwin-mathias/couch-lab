@@ -55,6 +55,8 @@ fun ChannelTile(
     modifier: Modifier = Modifier,
     /** Plays the channel inside the tile, with sound, about a second after it's highlighted. */
     livePreview: Boolean = false,
+    /** Hold OK; by default adds the channel to Favorites or opens the favorite menu (without Move). */
+    onLongClick: (() -> Unit)? = null,
 ) {
     LaunchedEffect(ch.id) { vm.ensureEpg(ch) }
     val (cur, _) = vm.nowNext(ch.id, now)
@@ -66,7 +68,7 @@ fun ChannelTile(
     ) {
         FocusCard(
             onClick = onClick,
-            onLongClick = { vm.toggleFavorite(ch.favKey, ch.display) },
+            onLongClick = onLongClick ?: { vm.holdFavorite(ch.favKey, ch.display) },
             modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
         ) { focused ->
             Box(Modifier.fillMaxSize().background(C.Panel), contentAlignment = Alignment.Center) {
