@@ -8,6 +8,11 @@ Why the app is the way it is. Read this before changing behaviour, so settled qu
 
 | Version | Decision | Reason |
 |---|---|---|
+| 2.6 | **Guide ▲/▼ move strictly by playable row, keeping the time position**; same for the group picker and the Live TV lists | Fixes focus jumping across divider rows when scrolling down the guide |
+| 2.6 | **Sleep timer**: Off · 30 · 60 · 90 min, default 90 (set in Settings), off unless chosen, **not restored after a restart**, any key in the last minute extends it; at the end the player is released so the stream closes | Falling asleep with the TV on kept the one allowed connection busy all night. Ashwin chose 90 min and no restore |
+| 2.6 | Sleep timer also reachable from the Audio & subtitles panel | The live buttons row only shows when paused or behind live, so without it the timer would need a pause first |
+| 2.6 | **Settings grouped into Playback, Library, Account, App**, single-line rows with the value on the right; Clear watch history needs a second press; the version is a row that checks for updates | The list had become crowded |
+| 2.6 | **Phone remote shelved**; **backup and restore planned for 2.7**; Firebase sync later; failover not scheduled | The Google TV remote app already covers a phone remote |
 | 2.5.2 | **Security hardening:** one-time key on the phone setup and log pages; login encrypted with the Android Keystore and `allowBackup=false`; updates limited to this repo's https releases and verified against a published SHA-256 | A security audit found the pages open to anyone on the Wi-Fi, the password in plain text in backups, and no check on the downloaded update. Ashwin asked for these three fixes. Not done yet: pinning Actions to commit SHAs, Dependabot, upgrading NanoHTTPD |
 | 2.5.1 | **Signing key moved out of the repo into GitHub Actions secrets, and rotated** (`KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`) | The old keystore and its password were committed to a public repo, so anyone could sign an APK that installs over the app. Rotating needs a one-time uninstall and reinstall on each device |
 | 2.5 | **Faster channel switching with one stream only**: debounce 300 ms, start after about 1 s of buffer, kept-open connection, timing in Diagnostics | Plan allows **1 connection**; no bandwidth wasted |
@@ -46,7 +51,7 @@ Why the app is the way it is. Read this before changing behaviour, so settled qu
 2. **Never load provider lists into memory as strings or JSONObjects.** Stream to disk, parse with `JsonReader`, keep only the needed fields, and build URLs on demand.
 3. **Never re-parse JSON on every launch.** Keep a binary snapshot and load live channels first.
 4. **`init {}` goes last** in the ViewModel.
-5. **Lazy list keys must be unique** even when providers duplicate IDs. Prefix them with the index.
+5. **Lazy list keys must be unique and stable.** Use the item id, adding `#2`, `#3` only to repeats (`stableKeys`). Index-prefixed keys (`"$index:$id"`, used until 2.5) are unique but change whenever rows move, so focus can drop when the list recomposes.
 6. **The `C` name clash**: alias Media3's `C` as `MediaC`.
 7. **One shared player** for preview and full screen, with a handoff flag. Otherwise streams restart and providers may count two connections.
 8. **Safe area**: pad the shell (36/24/16/16 px), or TVs crop the edges.
@@ -61,6 +66,7 @@ Why the app is the way it is. Read this before changing behaviour, so settled qu
 17. **A player must never just sit there.** Every resume or recording start has a 10 s watchdog with a fallback and a message.
 18. **The clipboard API needs https.** Pages served over plain http on the home network need the execCommand fallback.
 19. **Never commit signing keys or passwords**, even to a private repo. Keep them in GitHub secrets and keep an offline backup. Deleting a file does not remove it from git history, so a leaked key must be rotated.
+20. **On TV, never rely on the default ▲/▼ focus search across non-focusable rows in a lazy list.** Headings between rows, and rows that aren't composed yet, make it jump to a far cell, a header pill or another row (the 2.5 guide bug). Scroll to the target first, then request focus on it (`ListNav`).
 
 ## Known limitations (accepted)
 - The EPG comes only from `get_short_epg` (12 entries per channel, fetched lazily). There's no XMLTV.

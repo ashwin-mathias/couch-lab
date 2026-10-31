@@ -72,14 +72,14 @@ fun PlayerScreen(vm: AppViewModel, req: PlayRequest) {
 }
 
 /** Buttons on the live control bar while paused or behind live. */
-private enum class LiveButton { PLAY, START, LIVE, TRACKS }
+private enum class LiveButton { PLAY, START, LIVE, TRACKS, SLEEP }
 
 /**
  * Full-screen live TV.
  *  - At live: ▲▼ change channel, ◀ back to the page you came from, ▶ audio & subtitles,
  *    OK pause, hold OK favourite.
  *  - Paused or behind live: a control bar like the movie player. ◀ ▶ rewind / forward (catch-up
- *    channels), ▼ buttons (Play/Pause, Start of show, Go live, Audio & subtitles), OK play/pause.
+ *    channels), ▼ buttons (Play/Pause, Start of show, Go live, Audio & subtitles, Sleep), OK play/pause.
  *    Back always leaves. CH+/CH− still change channel.
  */
 @Composable
@@ -91,6 +91,7 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
     var previous by remember { mutableIntStateOf(-1) }
     var showInfo by remember { mutableStateOf(true) }
     var panelOpen by remember { mutableStateOf(false) }
+    var sleepOpen by remember { mutableStateOf(false) }
     var tracksTick by remember { mutableIntStateOf(0) }
     var infoTick by remember { mutableIntStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -219,12 +220,14 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
             LiveButton.START -> currentShow?.let { startShift(it.start) }
             LiveButton.LIVE -> goLive()
             LiveButton.TRACKS -> panelOpen = true
+            LiveButton.SLEEP -> sleepOpen = true
         }
     }
 
-    // Back always leaves; it closes the audio & subtitles panel first.
+    // Back always leaves; it closes the audio & subtitles or sleep panel first.
     BackHandler { leave() }
     BackHandler(enabled = panelOpen) { panelOpen = false }
+    BackHandler(enabled = sleepOpen) { sleepOpen = false }
 
     // The info bar updates at once; the stream starts once the remote has settled (300 ms),
     // so scrolling past channels opens no streams.
@@ -250,8 +253,8 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
         showInfo = false
     }
     // The control bar hides after 5 s while playing; it stays while paused.
-    LaunchedEffect(barTick, barVisible, panelOpen, paused) {
-        if (barVisible && !panelOpen && !paused) {
+    LaunchedEffect(barTick, barVisible, panelOpen, sleepOpen, paused) {
+        if (barVisible && !panelOpen && !sleepOpen && !paused) {
             delay(5000)
             barVisible = false
         }
@@ -387,8 +390,8 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
         player.addListener(l)
         onDispose { player.removeListener(l) }
     }
-    LaunchedEffect(panelOpen) {
-        if (!panelOpen) {
+    LaunchedEffect(panelOpen, sleepOpen) {
+        if (!panelOpen && !sleepOpen) {
             delay(80)
             runCatching { focus.requestFocus() }
         }
@@ -401,7 +404,7 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
             .focusRequester(focus)
             .focusable()
             .onPreviewKeyEvent { ev ->
-                if (panelOpen) return@onPreviewKeyEvent false
+                if (panelOpen || sleepOpen) return@onPreviewKeyEvent false
                 val ne = ev.nativeKeyEvent
                 val code = ne.keyCode
                 val step = when {
@@ -473,12 +476,8 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
     ) {
         PlayerSurface(Modifier.fillMaxSize())
 
-        if (showInfo || behind) {
-            Box(
-                Modifier.align(Alignment.TopEnd).padding(top = 32.u, end = 48.u)
-                    .clip(RoundedCornerShape(10.u)).background(C.Bg.copy(alpha = 0.85f))
-                    .padding(horizontal = 14.u, vertical = 8.u)
-            ) { Clock() }
+        if ((showInfo || behind) && !sleepOpen) {
+            PlayerClock(vm, Modifier.align(Alignment.TopEnd))
         }
 
         if (behind) {
@@ -497,7 +496,7 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
             }
         }
 
-        if (behind && barVisible && !panelOpen) {
+        if (behind && barVisible && !panelOpen && !sleepOpen) {
             val t0 = clockTick
             val w = seekTarget ?: watchedTime()
             val lag = (t0.coerceAtLeast(wallNow()) - w).coerceAtLeast(0L)
@@ -515,6 +514,7 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
                         LiveButton.START -> "Start of show"
                         LiveButton.LIVE -> "Go live"
                         LiveButton.TRACKS -> "Audio & subtitles"
+                        LiveButton.SLEEP -> "Sleep"
                     }
                 },
                 selected = if (onButtons) button else -1,
@@ -584,8 +584,13 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
                 onChanged = { tracksTick++ },
                 note = "Remembered for this channel.  Back to close.",
                 noSubs = "This channel has no subtitles.",
+                onSleep = { panelOpen = false; sleepOpen = true },
                 modifier = Modifier.align(Alignment.CenterEnd),
             )
+        }
+
+        if (sleepOpen) {
+            SleepPanel(vm, onDone = { sleepOpen = false }, modifier = Modifier.align(Alignment.CenterEnd))
         }
     }
 }
@@ -600,6 +605,7 @@ private fun TrackPanel(
     onChanged: () -> Unit,
     note: String,
     noSubs: String,
+    onSleep: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val ctx = LocalContext.current
@@ -679,6 +685,72 @@ private fun TrackPanel(
         Spacer(Modifier.height(10.u))
         TrackRow("Subtitle style…", selected = false) { styleOpen = true }
         T(SubtitleStyleState.style.summary, size = 12, color = C.Dim, maxLines = 2, modifier = Modifier.padding(start = 38.u))
+
+        // Also here, so the sleep timer can be set at live without pausing first.
+        Spacer(Modifier.height(10.u))
+        TrackRow("Sleep timer…", selected = false) { onSleep() }
+        val left = sleepLeftText(vm)
+        T(left?.let { "Sleep in $it" } ?: "Off", size = 12, color = C.Dim, modifier = Modifier.padding(start = 38.u))
+    }
+}
+
+/** "42 min" while the sleep timer runs (rounded up), else null. Refreshes every 15 s. */
+@Composable
+private fun sleepLeftText(vm: AppViewModel): String? {
+    @Suppress("UNUSED_VARIABLE") val tick = rememberNow(15_000L)
+    if (vm.sleepMinutes == 0) return null
+    val left = vm.sleepLeftMs()
+    return "${((left + 59_999L) / 60_000L).coerceAtLeast(1L)} min"
+}
+
+/** The clock at the top right of the player, with "Sleep in 42 min" beside it while the timer runs. */
+@Composable
+private fun PlayerClock(vm: AppViewModel, modifier: Modifier = Modifier) {
+    Row(
+        modifier.padding(top = 32.u, end = 48.u)
+            .clip(RoundedCornerShape(10.u)).background(C.Bg.copy(alpha = 0.85f))
+            .padding(horizontal = 14.u, vertical = 8.u),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        sleepLeftText(vm)?.let {
+            T("Sleep in $it", size = 13, weight = FontWeight.SemiBold, color = C.Text2)
+            T("   ·   ", size = 13, color = C.Dim)
+        }
+        Clock()
+    }
+}
+
+/**
+ * "Sleep timer" panel: Off · 30 · 60 · 90 min. Focus starts on the running choice, or on the
+ * default from Settings when no timer runs. OK starts it and closes; Back closes unchanged.
+ */
+@Composable
+private fun SleepPanel(vm: AppViewModel, onDone: () -> Unit, modifier: Modifier = Modifier) {
+    val choices = listOf(0) + com.sparky.iptv.data.SLEEP_CHOICES
+    val start = if (vm.sleepMinutes > 0) vm.sleepMinutes else vm.prefs.sleepDefault
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) { delay(80); runCatching { first.requestFocus() } }
+    val left = sleepLeftText(vm)
+    Column(
+        modifier.fillMaxHeight().width(380.u).background(C.Bg.copy(alpha = 0.94f))
+            .padding(start = 24.u, end = 40.u, top = 40.u, bottom = 40.u),
+        verticalArrangement = Arrangement.spacedBy(6.u),
+    ) {
+        T("Sleep timer", size = 20, weight = FontWeight.Bold)
+        T(
+            (left?.let { "Stops playback in $it.  " } ?: "Stops playback after the time you choose.  ") + "Back to close.",
+            size = 12, color = C.Dim, maxLines = 2, modifier = Modifier.padding(bottom = 10.u),
+        )
+        choices.forEach { m ->
+            TrackRow(
+                if (m == 0) "Off" else "$m min",
+                selected = m == vm.sleepMinutes,
+                modifier = if (m == start) Modifier.focusRequester(first) else Modifier,
+            ) {
+                vm.setSleep(m)
+                onDone()
+            }
+        }
     }
 }
 
@@ -698,7 +770,8 @@ private fun TrackRow(label: String, selected: Boolean, modifier: Modifier = Modi
 }
 
 private enum class VodButton(val label: String) {
-    PLAY("Pause"), BACK("Back 10s"), FORWARD("Forward 10s"), TRACKS("Audio & subtitles"), NEXT("Next episode"), RESTART("Start over")
+    PLAY("Pause"), BACK("Back 10s"), FORWARD("Forward 10s"), TRACKS("Audio & subtitles"), SLEEP("Sleep"),
+    NEXT("Next episode"), RESTART("Start over")
 }
 
 /** "1:02:05" or "12:05". */
@@ -729,6 +802,7 @@ private fun VodPlayer(vm: AppViewModel, req: PlayRequest.Vod) {
     var button by remember { mutableIntStateOf(0) }
     var barTick by remember { mutableIntStateOf(0) }       // any key restarts the hide timer
     var panelOpen by remember { mutableStateOf(false) }
+    var sleepOpen by remember { mutableStateOf(false) }
     var tracksTick by remember { mutableIntStateOf(0) }
     var playing by remember { mutableStateOf(true) }
     var position by remember { mutableStateOf(0L) }
@@ -778,6 +852,7 @@ private fun VodPlayer(vm: AppViewModel, req: PlayRequest.Vod) {
             VodButton.BACK -> seekBy(-10_000)
             VodButton.FORWARD -> seekBy(10_000)
             VodButton.TRACKS -> panelOpen = true
+            VodButton.SLEEP -> sleepOpen = true
             VodButton.NEXT -> { save(); if (hasNext) idx++ }
             VodButton.RESTART -> { player.seekTo(0); position = 0; player.playWhenReady = true; playing = true }
         }
@@ -785,8 +860,9 @@ private fun VodPlayer(vm: AppViewModel, req: PlayRequest.Vod) {
 
     BackHandler { exit() }
     // Registered later, so they take precedence: Back closes the bar, then the panel.
-    BackHandler(enabled = barVisible && !panelOpen) { barVisible = false }
+    BackHandler(enabled = barVisible && !panelOpen && !sleepOpen) { barVisible = false }
     BackHandler(enabled = panelOpen) { panelOpen = false }
+    BackHandler(enabled = sleepOpen) { sleepOpen = false }
 
     LaunchedEffect(item.key) {
         error = null
@@ -803,8 +879,8 @@ private fun VodPlayer(vm: AppViewModel, req: PlayRequest.Vod) {
         }
     }
     // Hide the bar after 5 s without a key press (it stays while paused).
-    LaunchedEffect(barTick, barVisible, panelOpen, playing) {
-        if (barVisible && !panelOpen && playing) {
+    LaunchedEffect(barTick, barVisible, panelOpen, sleepOpen, playing) {
+        if (barVisible && !panelOpen && !sleepOpen && playing) {
             delay(5000)
             barVisible = false
         }
@@ -822,8 +898,8 @@ private fun VodPlayer(vm: AppViewModel, req: PlayRequest.Vod) {
             delay(500)
         }
     }
-    LaunchedEffect(panelOpen) {
-        if (!panelOpen) {
+    LaunchedEffect(panelOpen, sleepOpen) {
+        if (!panelOpen && !sleepOpen) {
             delay(80)
             runCatching { focus.requestFocus() }
         }
@@ -879,7 +955,7 @@ private fun VodPlayer(vm: AppViewModel, req: PlayRequest.Vod) {
             .focusRequester(focus)
             .focusable()
             .onPreviewKeyEvent { ev ->
-                if (panelOpen) return@onPreviewKeyEvent false
+                if (panelOpen || sleepOpen) return@onPreviewKeyEvent false
                 if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 val ne = ev.nativeKeyEvent
                 // Holding ◀ / ▶ jumps further the longer it's held.
@@ -924,7 +1000,7 @@ private fun VodPlayer(vm: AppViewModel, req: PlayRequest.Vod) {
     ) {
         PlayerSurface(Modifier.fillMaxSize())
 
-        if (barVisible || panelOpen) {
+        if (barVisible || panelOpen || sleepOpen) {
             // Title, top left; clock, top right.
             Column(
                 Modifier.align(Alignment.TopStart).padding(top = 32.u, start = 48.u, end = 480.u),
@@ -933,14 +1009,10 @@ private fun VodPlayer(vm: AppViewModel, req: PlayRequest.Vod) {
                 T(item.title, size = 20, weight = FontWeight.Bold)
                 if (item.subtitle.isNotBlank()) T(item.subtitle, size = 14, color = C.Text2)
             }
-            if (!panelOpen) Box(
-                Modifier.align(Alignment.TopEnd).padding(top = 32.u, end = 48.u)
-                    .clip(RoundedCornerShape(10.u)).background(C.Bg.copy(alpha = 0.85f))
-                    .padding(horizontal = 14.u, vertical = 8.u)
-            ) { Clock() }
+            if (!panelOpen && !sleepOpen) PlayerClock(vm, Modifier.align(Alignment.TopEnd))
         }
 
-        if (barVisible && !panelOpen) {
+        if (barVisible && !panelOpen && !sleepOpen) {
             ControlBar(
                 heading = null,
                 left = fmtTime(position),
@@ -964,8 +1036,13 @@ private fun VodPlayer(vm: AppViewModel, req: PlayRequest.Vod) {
                 onChanged = { tracksTick++ },
                 note = "Used for all movies & series.  Back to close.",
                 noSubs = "This title has no subtitles.",
+                onSleep = { panelOpen = false; sleepOpen = true },
                 modifier = Modifier.align(Alignment.CenterEnd),
             )
+        }
+
+        if (sleepOpen) {
+            SleepPanel(vm, onDone = { sleepOpen = false }, modifier = Modifier.align(Alignment.CenterEnd))
         }
 
         error?.let {

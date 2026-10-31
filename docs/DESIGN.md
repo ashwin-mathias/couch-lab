@@ -197,6 +197,9 @@ Usage:
   - The title 20 Bold, then the note 12 Dim.
   - The "AUDIO" label (padding top 6, bottom 4), then track rows.
   - The "SUBTITLES" label (padding top 16), then Off and the tracks.
+  - Then (after a 10 gap each) "Subtitle style…" and "Sleep timer…" (2.6) rows, each with a 12 Dim summary line indented 38.
+- The **sleep panel** (2.6) has the same frame as the track panel: the title "Sleep timer" 20 Bold, the note 12 Dim (2 lines, 10 below), then four track rows (46 high, ✓ column 24) for Off, 30, 60 and 90 min.
+- **Clock chip with sleep timer** (2.6): while a timer runs, the chip reads "Sleep in 42 min" (13 SemiBold Text2), "␣␣␣·␣␣␣" (13 Dim), then the clock.
 
 ### 8.4 Movie/episode player
 - The same black full-screen video.
@@ -256,8 +259,12 @@ Usage:
 - Channel result cards are 260 × 64 on `Panel`. Posters are 140 wide.
 
 ### 8.12 Settings
-- Padding 48 × 32; spacing 24.
-- The left column is 520 wide with spacing 8. The right column has spacing 14, with info rows of the label 14 Dim (140 wide) and the value 14 Text2.
+- Padding 48 left and right, 24 top, 16 bottom; spacing 16 (2.6).
+- The left column is 520 wide with spacing 4, scrollable only as a fallback (2.6):
+  - **Rows**: single line, **48 high**, the usual `FocusItem` (`Panel`; the update row `Raised`), padding 20. The title 17 SemiBold on the left; a 16 gap; the value 14 `Dim` on the right (`OnFocusMuted` when focused), right-aligned and ellipsized.
+  - **Group headings**: the `Label` style (12 SemiBold uppercase, Dim), padding start 4; 16 above (none for the first) and 6 below, counting the column spacing.
+  - At 1080p the four groups (9 rows) fit without scrolling.
+- The right column has spacing 14, with info rows of the label 14 Dim (140 wide) and the value 14 Text2. Only the PLAYLIST block (the APP block was removed in 2.6).
 
 ### 8.13 Regions
 - Padding 64 × 40; spacing 18.

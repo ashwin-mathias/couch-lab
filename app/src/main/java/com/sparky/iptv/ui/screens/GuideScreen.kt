@@ -29,7 +29,12 @@ import com.sparky.iptv.ui.GROUP_FAV
 import com.sparky.iptv.ui.components.Icon
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
+import com.sparky.iptv.ui.components.rememberListNav
+import com.sparky.iptv.ui.components.stableKeys
+import com.sparky.iptv.ui.components.verticalKeys
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -82,10 +87,18 @@ fun GuideScreen(vm: AppViewModel) {
 private fun GroupPicker(vm: AppViewModel, onDone: () -> Unit) {
     BackHandler { onDone() }
     val groups = liveGroups(vm)
+    val keys = remember(groups) { stableKeys(groups) { it.id } }
     val selIndex = groups.indexOfFirst { it.id == vm.liveGroup }.coerceAtLeast(0)
     val state = rememberLazyListState(initialFirstVisibleItemIndex = (selIndex - 4).coerceAtLeast(0))
-    val sel = remember { FocusRequester() }
-    LaunchedEffect(Unit) { delay(120); runCatching { sel.requestFocus() } }
+    // ▲ / ▼ move between groups (and the "Show all regions" action), skipping region headings.
+    val nav = rememberListNav(state, "Group picker", rowHeight = 50.u)
+    fun move(i: Int, down: Boolean) = nav.step(
+        from = i, down = down, size = groups.size,
+        focusable = { groups[it].kind != GroupKind.HEADER },
+        keyAt = { keys[it] },
+        describe = { k -> groups.getOrNull(keys.indexOf(k))?.name ?: "none" },
+    )
+    LaunchedEffect(Unit) { delay(120); runCatching { nav.requester(keys[selIndex]).requestFocus() } }
     Box(Modifier.fillMaxSize().background(C.Bg.copy(alpha = 0.7f))) {
         Column(
             Modifier.fillMaxHeight().width(420.u).background(C.Panel).padding(horizontal = 20.u, vertical = 28.u),
@@ -94,17 +107,22 @@ private fun GroupPicker(vm: AppViewModel, onDone: () -> Unit) {
             T("Choose a group", size = 22, weight = FontWeight.Bold)
             T("${groups.count { it.kind == GroupKind.GROUP } - 3} groups · Back to close", size = 13, color = C.Dim)
             LazyColumn(state = state, verticalArrangement = Arrangement.spacedBy(4.u), contentPadding = PaddingValues(bottom = 24.u)) {
-                itemsIndexed(groups, key = { idx, g -> "$idx:" + (g.id) }) { i, g ->
+                itemsIndexed(groups, key = { idx, _ -> keys[idx] }) { i, g ->
                     if (g.kind == GroupKind.HEADER) {
                         Label(g.name, color = C.Text2, modifier = Modifier.padding(start = 14.u, top = 16.u, bottom = 4.u))
                         return@itemsIndexed
                     }
+                    val key = keys[i]
+                    val rowMod = Modifier.fillMaxWidth().height(46.u)
+                        .focusRequester(nav.requester(key))
+                        .verticalKeys { down -> move(i, down) }
                     if (g.kind == GroupKind.ACTION) {
                         FocusItem(
                             onClick = { vm.showAllRegions = !vm.showAllRegions },
+                            onFocus = { nav.focusedKey = key },
                             container = C.Raised,
                             shape = RoundedCornerShape(10.u),
-                            modifier = Modifier.fillMaxWidth().height(46.u),
+                            modifier = rowMod,
                         ) { f ->
                             T(g.name, size = 14, weight = FontWeight.SemiBold, color = if (f) C.OnFocus else C.Text2,
                                 modifier = Modifier.align(Alignment.CenterStart).padding(horizontal = 14.u))
@@ -114,9 +132,10 @@ private fun GroupPicker(vm: AppViewModel, onDone: () -> Unit) {
                     val isSel = g.id == vm.liveGroup
                     FocusItem(
                         onClick = { vm.liveGroup = g.id; onDone() },
+                        onFocus = { nav.focusedKey = key },
                         selected = isSel,
                         shape = RoundedCornerShape(10.u),
-                        modifier = Modifier.fillMaxWidth().height(46.u).let { if (i == selIndex) it.focusRequester(sel) else it },
+                        modifier = rowMod,
                     ) { f ->
                         Row(Modifier.fillMaxSize().padding(horizontal = 14.u), verticalAlignment = Alignment.CenterVertically) {
                             T(
@@ -146,7 +165,15 @@ private fun GuideContent(vm: AppViewModel, onPickGroup: () -> Unit) {
     var focusedCh by remember { mutableStateOf<Channel?>(null) }
     var focusedProg by remember { mutableStateOf<EpgEntry?>(null) }
     val firstFocus = remember { FocusRequester() }
-    val rowFocus = remember { HashMap<String, FocusRequester>() }
+    // Stable row keys (the channel id), so a row keeps focus when its guide data arrives.
+    val keys = remember(channels) { stableKeys(channels) { it.id } }
+    val listState = rememberLazyListState()
+    val nav = rememberListNav(listState, "Guide", rowHeight = 56.u)
+    // Each composed row registers how to focus its cell at a given time; returns that cell's start.
+    val rowCells = remember { HashMap<String, (Long?) -> Long?>() }
+    // The time ▲ / ▼ keep: (row key, start of the focused cell, time to keep).
+    // Holding ▼ through rows with different show times stays at the same time instead of drifting.
+    val anchor = remember { arrayOfNulls<Triple<String, Long, Long>>(1) }
     LaunchedEffect(group) {
         delay(150)
         runCatching { firstFocus.requestFocus() }
@@ -156,7 +183,7 @@ private fun GuideContent(vm: AppViewModel, onPickGroup: () -> Unit) {
     LaunchedEffect(moved) {
         if (moved == 0) return@LaunchedEffect
         delay(120)
-        focusedCh?.let { c -> runCatching { rowFocus[c.id]?.requestFocus() } }
+        nav.focusedKey?.let { k -> runCatching { rowCells[k]?.invoke(null) } }
     }
     /** ◀ on a row's first show moves 90 min back, on catch-up channels and within their catch-up days. */
     fun moveBack(ch: Channel): Boolean {
@@ -173,6 +200,25 @@ private fun GuideContent(vm: AppViewModel, onPickGroup: () -> Unit) {
         slots = (slots + 3).coerceAtMost(0)
         moved++
         return true
+    }
+    /**
+     * ▲ / ▼ on a cell of row [i] that starts at [cellStart]: go to the next playable row (skipping
+     * divider headings), to the cell showing the same time.
+     */
+    fun moveRow(i: Int, down: Boolean, cellStart: Long): Boolean {
+        val a = anchor[0]
+        val t = (if (a != null && a.first == keys[i] && a.second == cellStart) a.third else cellStart)
+            .coerceIn(winStart, winEnd - 1)
+        return nav.step(
+            from = i, down = down, size = channels.size,
+            focusable = { !channels[it].divider },
+            keyAt = { keys[it] },
+            describe = { k -> channels.getOrNull(keys.indexOf(k))?.let { "${it.num} ${it.display}" } ?: "none" },
+            request = { k ->
+                val start = rowCells[k]?.invoke(t)
+                if (start != null) anchor[0] = Triple(k, start, t)
+            },
+        )
     }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 48.u, vertical = 28.u), verticalArrangement = Arrangement.spacedBy(18.u)) {
@@ -275,17 +321,17 @@ private fun GuideContent(vm: AppViewModel, onPickGroup: () -> Unit) {
                 Box(Modifier.fillMaxWidth().height(1.u).background(C.Line))
                 Spacer(Modifier.height(4.u))
                 val firstPlayable = channels.indexOfFirst { !it.divider }
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(4.u), contentPadding = PaddingValues(bottom = 24.u)) {
-                    itemsIndexed(channels, key = { idx, c -> "$idx:" + (c.id) }) { i, ch ->
+                LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(4.u), contentPadding = PaddingValues(bottom = 24.u)) {
+                    itemsIndexed(channels, key = { idx, _ -> keys[idx] }) { i, ch ->
                         if (ch.divider) {
                             Row(Modifier.padding(top = 12.u, bottom = 4.u), verticalAlignment = Alignment.CenterVertically) {
                                 Label(Names.dividerTitle(ch.name), color = C.Text2)
                             }
                             return@itemsIndexed
                         }
-                        val req = rowFocus.getOrPut(ch.id) { FocusRequester() }
+                        val rowKey = keys[i]
                         GuideRow(
-                            vm, ch, now, winStart, winEnd, perMin, chanCol,
+                            vm, ch, rowKey, rowCells, now, winStart, winEnd, perMin, chanCol,
                             onPlay = { e ->
                                 when {
                                     e == null || e.end > now -> vm.playLive(channels, i)
@@ -293,10 +339,11 @@ private fun GuideContent(vm: AppViewModel, onPickGroup: () -> Unit) {
                                     else -> vm.toast = "This show can't be replayed"
                                 }
                             },
-                            onFocus = { e -> focusedCh = ch; focusedProg = e },
-                            focusRequesters = listOfNotNull(req, if (i == firstPlayable) firstFocus else null),
+                            onFocus = { e -> focusedCh = ch; focusedProg = e; nav.focusedKey = rowKey },
+                            firstFocus = if (i == firstPlayable) firstFocus else null,
                             onEdgeLeft = { moveBack(ch) },
                             onEdgeRight = { moveForward() },
+                            onVertical = { down, cellStart -> moveRow(i, down, cellStart) },
                         )
                     }
                 }
@@ -315,10 +362,24 @@ private fun GuideContent(vm: AppViewModel, onPickGroup: () -> Unit) {
     }
 }
 
+/** One cell of a guide row: a show, or the whole window while there's no guide data. */
+private class Cell(
+    val title: String,
+    val sub: String,
+    val start: Long,     // clamped to the window
+    val end: Long,
+    val width: Dp,
+    val live: Boolean,
+    val dim: Boolean,
+    val entry: EpgEntry?,
+)
+
 @Composable
 private fun GuideRow(
     vm: AppViewModel,
     ch: Channel,
+    rowKey: String,
+    rowCells: HashMap<String, (Long?) -> Long?>,
     now: Long,
     winStart: Long,
     winEnd: Long,
@@ -326,9 +387,10 @@ private fun GuideRow(
     chanCol: Dp,
     onPlay: (EpgEntry?) -> Unit,
     onFocus: (EpgEntry?) -> Unit,
-    focusRequesters: List<FocusRequester>,
+    firstFocus: FocusRequester?,
     onEdgeLeft: () -> Boolean,
     onEdgeRight: () -> Boolean,
+    onVertical: (down: Boolean, cellStart: Long) -> Boolean,
 ) {
     LaunchedEffect(ch.id) { vm.ensureEpg(ch) }
     // Looking back in time: load past shows for catch-up channels.
@@ -337,7 +399,48 @@ private fun GuideRow(
     val entries = vm.epg[ch.id].orEmpty().filter { it.end > winStart && it.start < winEnd }
     // Channels without guide data get a slimmer row so the guide stays compact.
     val compact = entries.isEmpty() && vm.epg.containsKey(ch.id)
-    fun firstCell(m: Modifier): Modifier = focusRequesters.fold(m) { acc, r -> acc.focusRequester(r) }
+    val cells = if (entries.isEmpty()) {
+        listOf(
+            Cell(
+                title = if (compact) "${ch.display}  ·  no guide information" else "Loading…",
+                sub = "", start = winStart, end = winEnd, width = perMin * WINDOW_MIN - 4.u,
+                live = true, dim = false, entry = null,
+            )
+        )
+    } else {
+        entries.map { e ->
+            val s = maxOf(e.start, winStart)
+            val en = minOf(e.end, winEnd)
+            val isPast = e.end <= now
+            val replay = isPast && vm.canReplay(ch, e, now)
+            Cell(
+                title = (if (replay) "↺  " else "") + e.title.ifBlank { ch.display },
+                sub = "${fmtShort(e.start)} – ${fmtShort(e.end)}",
+                start = s, end = en,
+                width = (perMin * ((en - s) / 60_000f) - 4.u).coerceAtLeast(24.dp),
+                live = now in e.start until e.end,
+                dim = isPast && !replay,
+                entry = e,
+            )
+        }
+    }
+    // One requester per cell position, kept across guide updates.
+    val reqs = remember { ArrayList<FocusRequester>() }
+    while (reqs.size < cells.size) reqs.add(FocusRequester())
+    // Let the guide focus this row at a time: the cell covering it, else the nearest one.
+    val latest = rememberUpdatedState(cells)
+    DisposableEffect(rowKey) {
+        val fn: (Long?) -> Long? = { t ->
+            val cs = latest.value
+            val idx = if (t == null) 0 else cs.indexOfFirst { t >= it.start && t < it.end }.takeIf { it >= 0 }
+                ?: cs.indices.minByOrNull { i -> if (t < cs[i].start) cs[i].start - t else t - cs[i].end }
+                ?: 0
+            reqs[idx].requestFocus()
+            cs[idx].start
+        }
+        rowCells[rowKey] = fn
+        onDispose { if (rowCells[rowKey] === fn) rowCells.remove(rowKey) }
+    }
     Row(Modifier.height(if (compact) 38.u else 52.u), verticalAlignment = Alignment.CenterVertically) {
         Row(Modifier.width(chanCol), verticalAlignment = Alignment.CenterVertically) {
             T(ch.num.toString(), size = 12, color = C.Dim, modifier = Modifier.width(44.u))
@@ -346,51 +449,48 @@ private fun GuideRow(
             T(ch.display, size = 14, weight = FontWeight.SemiBold, modifier = Modifier.padding(end = 12.u))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(4.u)) {
-            if (entries.isEmpty()) {
+            // The "Loading…" cell and the first show are the same composable, so the row keeps
+            // focus when its guide data arrives.
+            cells.forEachIndexed { idx, c ->
                 ProgramCell(
-                    title = if (compact) "${ch.display}  ·  no guide information" else "Loading…",
-                    sub = "",
-                    width = perMin * WINDOW_MIN - 4.u,
-                    live = true,
-                    onClick = { onPlay(null) },
-                    onFocus = { onFocus(null) },
-                    modifier = firstCell(Modifier).edgeKeys(true, true, onEdgeLeft, onEdgeRight),
+                    title = c.title,
+                    sub = c.sub,
+                    width = c.width,
+                    live = c.live,
+                    dim = c.dim,
+                    onClick = { onPlay(c.entry) },
+                    onFocus = { onFocus(c.entry) },
+                    modifier = Modifier
+                        .focusRequester(reqs[idx])
+                        .let { if (idx == 0 && firstFocus != null) it.focusRequester(firstFocus) else it }
+                        .cellKeys(idx == 0, idx == cells.lastIndex, onEdgeLeft, onEdgeRight) { down -> onVertical(down, c.start) },
                     height = if (compact) 34.u else 46.u,
                 )
-            } else {
-                entries.forEachIndexed { idx, e ->
-                    val s = maxOf(e.start, winStart)
-                    val en = minOf(e.end, winEnd)
-                    val w = (perMin * ((en - s) / 60_000f) - 4.u).coerceAtLeast(24.dp)
-                    val isPast = e.end <= now
-                    val replay = isPast && vm.canReplay(ch, e, now)
-                    ProgramCell(
-                        title = (if (replay) "↺  " else "") + e.title.ifBlank { ch.display },
-                        sub = "${fmtShort(e.start)} – ${fmtShort(e.end)}",
-                        width = w,
-                        live = now in e.start until e.end,
-                        dim = isPast && !replay,
-                        onClick = { onPlay(e) },
-                        onFocus = { onFocus(e) },
-                        modifier = (if (idx == 0) firstCell(Modifier) else Modifier)
-                            .edgeKeys(idx == 0, idx == entries.lastIndex, onEdgeLeft, onEdgeRight),
-                    )
-                }
             }
         }
     }
 }
 
-/** ◀ on a row's first cell and ▶ on its last cell move the guide window in time. */
-private fun Modifier.edgeKeys(first: Boolean, last: Boolean, onLeft: () -> Boolean, onRight: () -> Boolean): Modifier =
-    if (!first && !last) this else onPreviewKeyEvent { ev ->
-        if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-        when (ev.nativeKeyEvent.keyCode) {
-            android.view.KeyEvent.KEYCODE_DPAD_LEFT -> first && onLeft()
-            android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> last && onRight()
-            else -> false
-        }
+/**
+ * ◀ on a row's first cell and ▶ on its last cell move the guide window in time.
+ * ▲ / ▼ always go to the next playable row (never left to the default focus search).
+ */
+private fun Modifier.cellKeys(
+    first: Boolean,
+    last: Boolean,
+    onLeft: () -> Boolean,
+    onRight: () -> Boolean,
+    onVertical: (down: Boolean) -> Boolean,
+): Modifier = onPreviewKeyEvent { ev ->
+    if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+    when (ev.nativeKeyEvent.keyCode) {
+        android.view.KeyEvent.KEYCODE_DPAD_LEFT -> first && onLeft()
+        android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> last && onRight()
+        android.view.KeyEvent.KEYCODE_DPAD_DOWN -> onVertical(true)
+        android.view.KeyEvent.KEYCODE_DPAD_UP -> onVertical(false)
+        else -> false
     }
+}
 
 @Composable
 private fun ProgramCell(

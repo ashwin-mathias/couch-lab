@@ -147,6 +147,9 @@ res/     drawable/*.xml icons, drawable-nodpi/{logo,avatar}.png + sparky.jpg, dr
   - `epg: SnapshotStateMap<channelId, List<EpgEntry>>`, fetched lazily per visible row by `ensureEpg`, at most **4 at a time** (Semaphore).
   - Re-fetch when: never fetched; empty and older than 10 min; or the data ends within the next hour and it was fetched more than 5 min ago. Only for Xtream.
 - `liveHandoff: Boolean` is set just before opening full screen so the preview's dispose doesn't stop the shared player.
+- **Sleep timer (2.6)**: `sleepMinutes` (0 = off), `sleepEndsAt` (`SystemClock.elapsedRealtime`), and a `viewModelScope` job. `setSleep(m)` starts, restarts or cancels it. In memory only, so closing the app clears it.
+  - The job wakes 1 min before the end for the warning toast (`SLEEP_WARNING`), then each second; at the end `sleepFinished()` calls `PlayerHolder.release()`, sets `PlayerHolder.held`, pops a `Screen.Player`, toasts and logs.
+  - `MainActivity.dispatchKeyEvent` passes every key to `vm.onAnyKey` first. Any key clears `PlayerHolder.held`. In the last minute a key restarts the timer and is swallowed (down and up), so it doesn't also pause or change channel.
 - **`init {}` must be the last block in the class.** It calls `load()`, which reads properties declared above. Putting it first caused a null crash in 2.1 development.
 
 ## 6. Storage (`SharedPreferences "sparky"`)
@@ -172,6 +175,7 @@ res/     drawable/*.xml icons, drawable-nodpi/{logo,avatar}.png + sparky.jpg, dr
 | `last_refresh` | epoch ms |
 | `catchup_scanned` | bool |
 | `last_channel` | channel id |
+| `sleep_default` | (2.6) int minutes, 30, 60 or 90 (default 90): the sleep timer length focused first |
 
 Files in `filesDir`: `snap_*.bin`, `cache_m3u.json`, `app_log.txt`, `last_crash.txt`, `seen_crash.txt`. Cache: `cacheDir/dl_*.json` (temp) and `cacheDir/updates/sparky-iptv.apk`.
 
@@ -190,9 +194,12 @@ Files in `filesDir`: `snap_*.bin`, `cache_m3u.json`, `app_log.txt`, `last_crash.
 - `VodItem.saveProgress = false` marks recordings played from the guide; they don't store resume points.
   - `play(url, startMs, force)`: if the URL is unchanged and the player isn't idle, just resume. Otherwise call `TrackHelper.reset` (clear overrides, subtitles off), set the item (MIME `APPLICATION_M3U8` for `.m3u8`), prepare and play.
   - `stop` clears items; `pause`/`resume`; `currentPosition`; `duration` (0 if unknown).
+  - `release` (2.6, sleep timer): stops and releases the ExoPlayer, evicts the OkHttp connection pool so the provider connection closes, and bumps `generation`. The next `get` builds a fresh player.
+  - `held` (2.6): while true, `play` does nothing, so previews don't restart after the sleep timer. Cleared by any key.
+  - `streamState()` (2.6): "none" or "open (playing/paused/buffering)", shown in Diagnostics.
 - `PlayerSurface`: an `AndroidView(PlayerView)` with `useController = false`, **not focusable** (`FOCUS_BLOCK_DESCENDANTS`), buffering spinner shown while playing, fit mode, black shutter, `keepScreenOn`.
   - **Never enable the stock controller.** All keys go to our Compose box.
-  - Its `update` block calls `SubStyle.apply(subtitleView, SubtitleStyleState.style)`. Because `update` reads that state, every surface re-styles as soon as the style changes. `apply` turns off embedded styles and font sizes, sets a `CaptionStyleCompat` (text colour, background, transparent window, edge type, black edge), sets the fractional text size to `DEFAULT_TEXT_SIZE_FRACTION × scale`, and sets the bottom padding fraction (0.2 when Raised, otherwise the default).
+  - Its `update` block reads `PlayerHolder.generation` and re-attaches the view to the current player (2.6, after a release), then calls `SubStyle.apply(subtitleView, SubtitleStyleState.style)`. Because `update` reads that state, every surface re-styles as soon as the style changes. `apply` turns off embedded styles and font sizes, sets a `CaptionStyleCompat` (text colour, background, transparent window, edge type, black edge), sets the fractional text size to `DEFAULT_TEXT_SIZE_FRACTION × scale`, and sets the bottom padding fraction (0.2 when Raised, otherwise the default).
   - `AppViewModel.init` loads the style from Prefs into `SubtitleStyleState`; `setSubStyle` updates both.
 - Previews and full screen share the player. `PreviewDriver` plays after 700 ms of focus and stops on dispose unless `liveHandoff`.
 - Track selection: `TrackSelectionOverride(group.mediaTrackGroup, index)` with `setTrackTypeDisabled(type, false)`. Turning subtitles off = `clearOverridesOfType(TEXT)` + `setTrackTypeDisabled(TEXT, true)`. Labels are built from the language display name, the format label, 5.1/Stereo/Mono, and CC.
@@ -209,6 +216,14 @@ BackHandler(enabled = barVisible && !panelOpen) { barVisible = false }
 BackHandler(enabled = panelOpen) { panelOpen = false }   // registered last = highest priority
 ```
 - The bar buttons are **virtual focus** (an index in state), not Compose focus targets. Focus therefore can't escape to an invisible view.
+- The sleep panel (2.6) works like the Audio & subtitles panel: `sleepOpen` makes the box ignore keys, has its own BackHandler, and focus returns to the box when it closes.
+
+### Focus pattern (lists with headings, 2.6)
+Lists that mix focusable rows with non-focusable headings (guide grid, Live TV channel list, both group lists) **don't use Compose's default ▲/▼ focus search**. `ui/components/ListNav.kt`:
+- `stableKeys(items) { it.id }`: lazy keys are the item id (repeats get `#2`, `#3`), never `"$index:$id"`, so a row keeps focus when the list recomposes.
+- Each row handles ▲/▼ in `onPreviewKeyEvent` (`verticalKeys`) and calls `ListNav.step`: find the next focusable index, `LazyListState.reveal(index, down, ~2 rows)` (scroll so it's visible with context; `scrollToItem` first if it isn't composed), then request focus on it, retrying for up to 12 frames until the row's onFocus reports its key. Otherwise it logs "<where> focus: expected row X, got Y".
+- Repeats arriving while a move is settling are dropped, so holding a key never skips rows.
+- The guide registers one function per composed row (`rowCells[key]`) that focuses the cell covering a time and returns its start; an anchor keeps the time across consecutive ▲/▼. Guide cells are drawn in one positional loop, so the "Loading…" cell and the first show are the same composable and keep focus when data arrives.
 
 ## 8. Logging and privacy
 - `AppLog.setSecrets(pass, user)` is called before any network call. Every line passes through `redact`, which replaces each secret with `•••`.

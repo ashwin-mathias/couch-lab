@@ -2,6 +2,9 @@ package com.sparky.iptv.player
 
 import android.content.Context
 import androidx.annotation.OptIn
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
@@ -17,6 +20,17 @@ import com.sparky.iptv.data.USER_AGENT
 object PlayerHolder {
     private var player: ExoPlayer? = null
     private var currentUrl: String? = null
+    private var client: OkHttpClient? = null
+
+    /** Changes when the player is released, so video surfaces attach to the new one. */
+    var generation by mutableIntStateOf(0)
+        private set
+
+    /**
+     * Set when the sleep timer stops playback: nothing starts playing again (for example the
+     * Live TV preview) until a key is pressed.
+     */
+    @Volatile var held = false
 
     @OptIn(UnstableApi::class)
     fun get(ctx: Context): ExoPlayer {
@@ -29,6 +43,7 @@ object PlayerHolder {
             .followSslRedirects(true)
             .retryOnConnectionFailure(true)
             .build()
+        this.client = client
         val http = OkHttpDataSource.Factory(client).setUserAgent(USER_AGENT)
         // Start playing after about 1 s of video (default 2.5 s); 2 s after a stall.
         val load = DefaultLoadControl.Builder()
@@ -49,6 +64,7 @@ object PlayerHolder {
     }
 
     fun play(ctx: Context, url: String, startMs: Long = 0L, force: Boolean = false) {
+        if (held) return
         val p = get(ctx)
         if (!force && url == currentUrl && p.playbackState != androidx.media3.common.Player.STATE_IDLE) {
             p.playWhenReady = true
@@ -70,6 +86,31 @@ object PlayerHolder {
         player?.let {
             it.stop()
             it.clearMediaItems()
+        }
+    }
+
+    /**
+     * Stops playback, releases the player and closes the provider connection. The next [get]
+     * builds a fresh player. Used by the sleep timer.
+     */
+    fun release() {
+        currentUrl = null
+        player?.let { runCatching { it.stop(); it.release() } }
+        player = null
+        client?.let { c -> runCatching { c.connectionPool.evictAll() } }
+        client = null
+        generation++
+    }
+
+    /** "none", or what the player is doing with the open stream, for Diagnostics. */
+    fun streamState(): String {
+        val p = player ?: return "none"
+        if (currentUrl == null) return "none"
+        return when (p.playbackState) {
+            androidx.media3.common.Player.STATE_IDLE -> "none"
+            androidx.media3.common.Player.STATE_BUFFERING -> "open (buffering)"
+            androidx.media3.common.Player.STATE_READY -> if (p.playWhenReady) "open (playing)" else "open (paused)"
+            else -> "open (ended)"
         }
     }
 

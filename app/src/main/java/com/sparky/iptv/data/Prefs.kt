@@ -3,6 +3,9 @@ package com.sparky.iptv.data
 import android.content.Context
 import org.json.JSONObject
 
+/** Sleep timer lengths, in minutes. */
+val SLEEP_CHOICES = listOf(30, 60, 90)
+
 class Prefs(ctx: Context) {
     private val sp = ctx.getSharedPreferences("sparky", Context.MODE_PRIVATE)
 
@@ -186,6 +189,11 @@ class Prefs(ctx: Context) {
     var lastChannel: String?
         get() = sp.getString("last_channel", null)
         set(v) = sp.edit().putString("last_channel", v).apply()
+
+    /** Sleep timer length offered first, in minutes: 30, 60 or 90 (default 90). */
+    var sleepDefault: Int
+        get() = sp.getInt("sleep_default", 90).takeIf { it in SLEEP_CHOICES } ?: 90
+        set(v) = sp.edit().putInt("sleep_default", v).apply()
 
     fun seriesLastEpisode(seriesId: String): String? = sp.getString("slast:$seriesId", null)
     fun setSeriesLastEpisode(seriesId: String, episodeId: String) =

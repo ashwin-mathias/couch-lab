@@ -1,6 +1,6 @@
 # Sparky IPTV — Product specification
 
-Version described: **2.5.2** (October 2026). This file says **what the app does**. How it looks is in [DESIGN.md](DESIGN.md), how it's built in [ARCHITECTURE.md](ARCHITECTURE.md), and how to prove it works in [ACCEPTANCE.md](ACCEPTANCE.md).
+Version described: **2.6** (October 2026). This file says **what the app does**. How it looks is in [DESIGN.md](DESIGN.md), how it's built in [ARCHITECTURE.md](ARCHITECTURE.md), and how to prove it works in [ACCEPTANCE.md](ACCEPTANCE.md).
 
 Words used: in quoted on-screen text, `␣` marks a space that must be kept (hint lines use three spaces around each `·`; meta lines join with `   ·   `). **must** = required; **should** = strong default. "OK" = the remote's centre button. ◀ ▶ ▲ ▼ = D-pad. "Hold OK" = press longer than 600 ms.
 
@@ -105,12 +105,14 @@ Three columns: **Groups** (270) | **Channels** (470) | **Preview pane** (the res
 ### 7.2 Group list
 - Order: **Favorites**, **Recently watched**, **All channels** (labelled "All my channels" when regions are filtered), then each visible region as a heading (label + channel count) followed by its groups (cleaned names + counts). Your chosen regions come first, then the rest by size. Groups with 0 channels are hidden.
 - Moving focus onto a group **selects it immediately**; there's no need to press OK.
+- ▲ / ▼ move between groups (and the "Show all regions" action), **skipping region headings** (2.6). The list scrolls first, then focus moves.
 - On first launch, the selected group is Favorites if any live favorites exist, otherwise All channels.
 
 ### 7.3 Channel list
 - Each row (64 high): number, logo (or monogram), name, a ♥ if it's a favourite, "42m left", the current programme title, and a progress bar.
 - **Divider rows** from the provider (e.g. `##### NEWS #####`, made of 2+ `# = * ~ • ★` at both ends) show as small headings with lines. They are never playable and are skipped when changing channel in full screen.
 - Focus starts on the **last watched channel** if it's in the list, otherwise the first channel.
+- ▲ / ▼ move to the next / previous **channel**, skipping divider headings, and never jump elsewhere (2.6). The list scrolls first so about 2 rows stay visible beyond the focused one, then focus moves. ▼ on the last channel does nothing; ▲ on the first goes up to the header.
 - **OK** plays full screen. **Hold OK** toggles the favourite with the toast "Added ABC NEWS to Favorites" or "Removed … from Favorites".
 - For Favorites and Recently watched groups, a **Tiles / List** toggle appears in the header (default: list for Favorites, tiles for Recently watched; remembered per group). Other groups show the hint "Hold OK to ♥".
 - Empty texts:
@@ -157,6 +159,7 @@ Paused or behind live (§7.7):
 | Back | **Always leaves** (after closing the panel) |
 | Hold OK | Toggle favourite |
 
+- Buttons row: **Play/Pause, Start of show** (catch-up channels with guide data), **Go live, Audio & subtitles, Sleep** (2.6, §12.4).
 - The info bar appears for 5 s on start and on channel change:
   - Logo, number, name, ♥, "N of M".
   - The programme title (24 Bold) with start and end times and a progress bar.
@@ -176,6 +179,7 @@ Paused or behind live (§7.7):
   - The choice is saved **per channel** by language and re-applied whenever that channel's tracks load.
   - Only the **200 most recently changed channels** are kept.
   - The last row is **Subtitle style…** with the current style summary below it. It opens the style options inside the same panel (§14.1); Back returns to the track list.
+  - Below it, **Sleep timer…** (2.6) with "Off" or "Sleep in 42 min" below it. It opens the sleep timer panel (§12.4), so the timer can be set at live without pausing first.
 
 ### 7.7 Pause, rewind and catch-up (2.5)
 - The provider keeps recordings of **2,347 channels for up to 7 days** (Diagnostics, Oct 2026). A channel offers catch-up when its `tv_archive` is 1; `archiveDays` is `tv_archive_duration`. M3U channels never do.
@@ -229,13 +233,19 @@ Errors show the provider's actual code and what to do. The same wording is used 
   - "GUIDE" and the day ("Wednesday, Oct 28").
   - The focused programme's title (30 Bold); "number · channel", times, and "42m left"; the description (2 lines).
   - Right side: the clock, a **Favorites** pill toggle (filled heart when on; switches between Favorites and All channels), and a **Group: <name> ▾** pill that opens the group picker.
-- **Group picker**: a 420-wide panel on the left over a dimmed screen, titled "Choose a group", with "N groups · Back to close". It lists the same groups and headings as Live TV, and focus starts on the current group. Choosing a group also changes the Live TV group.
+- **Group picker**: a 420-wide panel on the left over a dimmed screen, titled "Choose a group", with "N groups · Back to close". It lists the same groups and headings as Live TV, and focus starts on the current group. Choosing a group also changes the Live TV group. ▲ / ▼ move between groups only, skipping region headings; "Show all regions" stays reachable (2.6).
 - **Grid**:
   - The window runs 150 minutes from the current half hour. The ruler shows times every 30 min. The channel column is 224 wide.
   - Programme cells are sized by duration. The cell on air now is lighter (Raised) than the others (Panel).
   - Rows without guide data are compact (38 instead of 52) and read "<channel> · no guide information". While loading: "Loading…".
   - A vertical **accent "now" line** has a time tag at the top.
 - OK on a current or future cell plays that channel live, full screen. Divider rows show as small headings.
+- **▲ / ▼ in the grid (2.6)** always move to the next / previous **playable channel row**, skipping divider rows, and never to anything else.
+  - Focus goes to the cell showing the **same time**: the start of the focused cell (clamped to the window), or the nearest cell if none covers it. Holding ▼ keeps that time across rows, so it doesn't drift.
+  - The grid scrolls first (keeping about 2 rows visible below the focused row when moving down), then focus moves. Holding ▼/▲ walks row by row without skipping.
+  - ▲ on the top row goes to the header pills; ▼ on the last row does nothing.
+  - When a row's guide data arrives ("Loading…" becomes shows, or the row turns compact), focus stays on that row.
+  - If focus ever lands somewhere other than the requested row, the log records "Guide focus: expected row 212 CNN, got …".
 - **Past shows (2.5)**, on catch-up channels:
   - ◀ on a row's first cell moves the whole window **90 min back**, within that channel's catch-up days. On channels without catch-up, ◀ goes to the nav rail as before. ▶ on a row's last cell moves 90 min forward, back up to now. A **Now** pill appears in the header when the window is in the past.
   - Past shows come from `get_simple_data_table` (fetched for visible catch-up rows once the window is in the past; cached for 30 min).
@@ -326,9 +336,9 @@ The player screen always holds focus and handles every key itself. The stock Exo
 ### 12.2 Bar
 - Bottom card:
   - **Timeline row**: elapsed "1:02:05", a progress bar (6 high and white when that row is active; 4 high and muted otherwise), and remaining time "−48:10".
-  - **Buttons row**: Pause/Play, Back 10s, Forward 10s, Audio & subtitles, Next episode (only if there's a next one), Start over. The current button is filled light with dark text; the others are dark pills.
+  - **Buttons row**: Pause/Play, Back 10s, Forward 10s, Audio & subtitles, **Sleep** (2.6), Next episode (only if there's a next one), Start over. The current button is filled light with dark text; the others are dark pills.
   - A hint on the right: "◀ ▶ 10 s (hold = faster)␣␣␣·␣␣␣OK Play / pause␣␣␣·␣␣␣▼ Buttons", or "◀ ▶ Choose␣␣␣·␣␣␣OK Select␣␣␣·␣␣␣▲ Timeline" on the buttons row.
-- The title and episode line sit top left, and the clock top right, whenever the bar or panel is showing.
+- The title and episode line sit top left, and the clock top right, whenever the bar or panel is showing. While a sleep timer runs, "Sleep in 42 min" sits next to the clock (live TV too).
 - The bar shows on start and hides after **5 s** without a key. It **stays while paused**.
 
 ### 12.3 Behaviour
@@ -343,6 +353,16 @@ The player screen always holds focus and handles every key itself. The stock Exo
   - Choices are saved as **one general setting for all movies and series** (`vod_audio_lang`, `vod_text_lang`), applied **once per title** when its tracks first load.
   - Changes made during a title stay in effect for that title.
 
+### 12.4 Sleep timer (2.6)
+- **Where**: a **Sleep** button in both players' buttons rows, after Audio & subtitles, and a **Sleep timer…** row at the bottom of the Audio & subtitles panel (the live buttons row only shows when paused or behind live).
+- **Panel** (right side, 380 wide), titled "Sleep timer", with "Stops playback after the time you choose.␣␣Back to close." (or "Stops playback in 42 min.␣␣Back to close." while running) and the rows **Off · 30 min · 60 min · 90 min** (✓ on the current state).
+  - Focus starts on the **default** (Settings → Sleep timer default, 90 min unless changed) when no timer runs, or on the running choice.
+  - OK starts the timer and closes the panel with the toast "Sleep timer: 90 min". Off cancels it: "Sleep timer off". Back closes without changes.
+- **Off unless chosen.** The timer lives in the app (ViewModel), so it keeps running across channel changes and between live TV and movies. It's **not restored** after the app closes.
+- While it runs, the player shows "Sleep in 42 min" next to the clock (minutes rounded up).
+- **Last minute**: the toast "Sleeping in 1 minute · press any key to keep watching" (shown for most of the minute). **Any key** in that minute restarts the timer at the same length with "Sleep timer: 90 min"; that key does nothing else.
+- **At the end**: playback stops and the player is released, so the stream connection closes. The player closes back to the page it was opened from, with the toast "Sleep timer stopped playback", and the log records "Sleep timer: stopped playback after 90 min". Previews don't start again until a key is pressed.
+
 ## 13. Search
 
 - A field: "Channels, movies or series", with a search icon. Focusing it and pressing OK opens the keyboard. Results update as you type, from 2 characters.
@@ -352,17 +372,24 @@ The player screen always holds focus and handles every key itself. The stock Exo
 
 ## 14. Settings
 
-- Left column (520 wide, scrollable), one row each (title + subtitle):
-  1. **Update available — install now** (only when one exists; highlighted; focused first). The subtitle reads "<release name>. Downloads and opens Android's installer." While downloading, the title becomes "Downloading · 12.3 MB".
-  2. **Change login**: "Scan a QR code and enter a new login on your phone".
-  3. **My regions**: lists the chosen region labels, or "Showing all regions".
-  3a. **Subtitle style**: the subtitle shows the current style, e.g. "Medium · White · Drop shadow · Semi-transparent box". It opens §14.1.
-  4. **Update playlist now**: "Updated 3 h ago · updates automatically once a day".
-  5. **Clear watch history**: "Removes resume points for movies and episodes". This also clears saved audio/subtitle choices. Toast: "Watch history cleared".
-  6. **Check for updates**: "Looks for a newer version on GitHub".
-  7. **Diagnostics**: "Activity log and last error, viewable on your phone".
-  8. **About Sparky IPTV**: "Who made it, and what's new in each version".
-- Right column: **PLAYLIST** (Name, Type, Server, Username, Status, Expires, Connections, and Library counts), then **APP** (Version "Sparky IPTV 2.3 (build N)").
+- Left column (520 wide): four groups of **single-line rows** (2.6). Each row has the title on the left and its current value on the right.
+  - (Pinned on top, only when an update exists) **Update available — install now** · the release name. Highlighted and focused first. While downloading, the title becomes "Downloading · 12.3 MB".
+  - **PLAYBACK**
+    - **Subtitle style** · the current style, e.g. "Medium · White · Drop shadow · Semi-transparent box". Opens §14.1.
+    - **Sleep timer default** · "90 min". ◀ ▶ change it (30 / 60 / 90); OK steps 30 → 60 → 90 → 30. Stored as `sleep_default`.
+  - **LIBRARY**
+    - **My regions** · the chosen region labels, or "All regions".
+    - **Update playlist now** · "Updated 3 h ago" ("Updating…" while running). The playlist still updates automatically once a day.
+    - **Clear watch history** (no value). Needs a second press: the first OK changes the title to "Press OK again to clear" for 3 s; a second OK within 3 s clears resume points and saved audio/subtitle choices, with the toast "Watch history cleared".
+  - **ACCOUNT**
+    - **Change login** · the playlist name. Scan a QR code and enter a new login on the phone.
+  - **APP**
+    - **Version** · "2.6 (build N)". OK checks for updates ("Checking for updates…", then "You have the latest version" or "Update available — open Settings to install").
+    - **Diagnostics**.
+    - **About Sparky IPTV**.
+- Focus starts on the update row if there is one, otherwise **Subtitle style**. ▲ / ▼ go through the rows in order.
+- The groups fit on screen at 1080p; the column scrolls only as a fallback (for example with the update row).
+- Right column: **PLAYLIST** (Name, Type, Server, Username, Status, Expires, Connections, and Library counts). The version is the Version row (2.6; before it was an APP block here).
 - The nav rail's Settings icon shows a small accent dot when an update is available.
 
 ### 14.1 Subtitle style (2.4)
@@ -405,6 +432,8 @@ The player screen always holds focus and handles every key itself. The stock Exo
   - "Channel switch: average 1.4 s (last 10)", once channels have been switched.
   - The catch-up test result, once run.
   - Playlist type and live format.
+  - "Stream: none", or "open (playing / paused / buffering)" (2.6), so you can check that no stream is open after the sleep timer.
+  - "Sleep timer: off", or "Sleep timer: 90 min · 42 min left" (2.6).
 - Buttons: **Test catch-up** (2.5), then Refresh and Clear crash (only if there is one).
   - Test catch-up asks the provider for a recording from about an hour ago on up to 3 catch-up channels (favourites first), trying **all three link formats** on each (2.5.1).
   - "Video" means any of: MPEG-TS packets (sync byte 0x47 every 188 or 192 bytes, starting anywhere in the first 2,000 bytes), `#EXTM3U` (HLS), or `ftyp` at byte 4 (MP4).

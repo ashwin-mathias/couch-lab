@@ -83,6 +83,11 @@ fun DiagnosticsScreen(vm: AppViewModel) {
                 if (sw.isNotEmpty()) appendLine("Channel switch: average %.1f s (last %d)".format(sw.average() / 1000.0, sw.size))
                 vm.catchupTest?.let { appendLine(it) }
                 appendLine("Playlist type: ${vm.prefs.playlist?.type ?: "none"} · live format ${vm.prefs.liveFormat}")
+                appendLine("Stream: ${com.sparky.iptv.player.PlayerHolder.streamState()}")
+                appendLine(
+                    if (vm.sleepMinutes == 0) "Sleep timer: off"
+                    else "Sleep timer: ${vm.sleepMinutes} min · ${(vm.sleepLeftMs() + 59_999L) / 60_000L} min left"
+                )
             }
         }
     }

@@ -1,6 +1,7 @@
 package com.sparky.iptv
 
 import android.os.Bundle
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -17,6 +18,12 @@ class MainActivity : ComponentActivity() {
         AppLog.init(applicationContext)
         super.onCreate(savedInstanceState)
         setContent { App(vm) }
+    }
+
+    // The sleep timer sees every key first (any key in its last minute keeps watching).
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (vm.onAnyKey(event)) return true
+        return super.dispatchKeyEvent(event)
     }
 
     override fun onStart() {

@@ -75,6 +75,8 @@ fun App(vm: AppViewModel) {
             }
             Toast(
                 text = vm.toast,
+                // The sleep warning stays up for most of its last minute.
+                durationMs = if (vm.toast == SLEEP_WARNING) 50_000L else 2_000L,
                 onDone = { vm.toast = null },
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 36.u),
             )

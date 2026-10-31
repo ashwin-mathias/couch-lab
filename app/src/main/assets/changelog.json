@@ -1,5 +1,17 @@
 [
   {
+    "version": "2.6",
+    "date": "2026-10-31",
+    "title": "Guide focus fix, sleep timer, tidier Settings",
+    "notes": [
+      "TV Guide: ▲ / ▼ now always move to the next channel at the same time, and no longer jump around between News, Sports and other headings.",
+      "The same steady ▲ / ▼ in the group picker and the Live TV lists.",
+      "Sleep timer: choose Off, 30, 60 or 90 min from Sleep in the player, or from Audio & subtitles. Press any key in the last minute to keep watching.",
+      "Settings grouped into Playback, Library, Account and App, with one line per setting.",
+      "Clear watch history now asks for a second press."
+    ]
+  },
+  {
     "version": "2.5.2",
     "date": "2026-10-31",
     "title": "Security hardening",

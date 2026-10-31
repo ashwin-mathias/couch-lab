@@ -64,6 +64,9 @@ import com.sparky.iptv.ui.components.fmtLeft
 import com.sparky.iptv.ui.components.fmtShort
 import com.sparky.iptv.ui.components.rememberNow
 import com.sparky.iptv.ui.components.u
+import com.sparky.iptv.ui.components.rememberListNav
+import com.sparky.iptv.ui.components.stableKeys
+import com.sparky.iptv.ui.components.verticalKeys
 import kotlinx.coroutines.delay
 
 /** Group list shared by Live TV and the guide, recomputed only when something it depends on changes. */
@@ -135,10 +138,21 @@ fun LiveScreen(vm: AppViewModel) {
 private fun GroupList(vm: AppViewModel, groups: List<GroupItem>, selected: String, modifier: Modifier) {
     val selIndex = remember(groups, selected) { groups.indexOfFirst { it.id == selected }.coerceAtLeast(0) }
     val state = rememberLazyListState(initialFirstVisibleItemIndex = (selIndex - 3).coerceAtLeast(0))
+    val keys = remember(groups) { stableKeys(groups) { it.id } }
+    // ▲ / ▼ move between groups, skipping region headings (see ListNav).
+    val nav = rememberListNav(state, "Groups", rowHeight = 46.u)
+    fun move(i: Int, down: Boolean) = nav.step(
+        from = i, down = down, size = groups.size,
+        focusable = { groups[it].kind != GroupKind.HEADER },
+        keyAt = { keys[it] },
+        describe = { k -> groups.getOrNull(keys.indexOf(k))?.name ?: "none" },
+    )
     Column(modifier.fillMaxHeight().padding(top = 28.u, start = 20.u, end = 16.u)) {
         Label("Groups", modifier = Modifier.padding(start = 10.u, top = 6.u, bottom = 14.u))
         LazyColumn(state = state, verticalArrangement = Arrangement.spacedBy(4.u), contentPadding = PaddingValues(bottom = 28.u)) {
-            itemsIndexed(groups, key = { idx, g -> "$idx:" + (g.id) }) { _, g ->
+            itemsIndexed(groups, key = { idx, _ -> keys[idx] }) { i, g ->
+                val key = keys[i]
+                val navMod = Modifier.focusRequester(nav.requester(key)).verticalKeys { down -> move(i, down) }
                 when (g.kind) {
                     GroupKind.HEADER -> Row(
                         Modifier.fillMaxWidth().padding(start = 10.u, end = 12.u, top = 18.u, bottom = 6.u),
@@ -151,9 +165,10 @@ private fun GroupList(vm: AppViewModel, groups: List<GroupItem>, selected: Strin
                         onClick = {
                             if (g.id == GROUP_ACTION_ALL_REGIONS) vm.showAllRegions = !vm.showAllRegions
                         },
+                        onFocus = { nav.focusedKey = key },
                         container = C.Panel,
                         shape = RoundedCornerShape(10.u),
-                        modifier = Modifier.fillMaxWidth().height(42.u).padding(top = 0.u),
+                        modifier = navMod.fillMaxWidth().height(42.u),
                     ) { f ->
                         T(
                             g.name, size = 14, weight = FontWeight.SemiBold, color = if (f) C.OnFocus else C.Text2,
@@ -164,10 +179,10 @@ private fun GroupList(vm: AppViewModel, groups: List<GroupItem>, selected: Strin
                         val isSel = g.id == selected
                         FocusItem(
                             onClick = { vm.liveGroup = g.id },
-                            onFocus = { vm.liveGroup = g.id },
+                            onFocus = { nav.focusedKey = key; vm.liveGroup = g.id },
                             selected = isSel,
                             shape = RoundedCornerShape(10.u),
-                            modifier = Modifier.fillMaxWidth().height(42.u),
+                            modifier = navMod.fillMaxWidth().height(42.u),
                         ) { f ->
                             Row(
                                 Modifier.fillMaxSize().padding(horizontal = 12.u),
@@ -204,12 +219,21 @@ private fun ChannelList(vm: AppViewModel, channels: List<Channel>, onFocus: (Cha
         delay(150)
         runCatching { firstFocus.requestFocus() }
     }
+    val keys = remember(channels) { stableKeys(channels) { it.id } }
+    // ▲ / ▼ move channel by channel, skipping the provider's divider headings (see ListNav).
+    val nav = rememberListNav(state, "Channel list", rowHeight = 68.u)
+    fun move(i: Int, down: Boolean) = nav.step(
+        from = i, down = down, size = channels.size,
+        focusable = { !channels[it].divider },
+        keyAt = { keys[it] },
+        describe = { k -> channels.getOrNull(keys.indexOf(k))?.let { "${it.num} ${it.display}" } ?: "none" },
+    )
     LazyColumn(
         state = state,
         verticalArrangement = Arrangement.spacedBy(4.u),
         contentPadding = PaddingValues(bottom = 28.u),
     ) {
-        itemsIndexed(channels, key = { idx, c -> "$idx:" + (c.id) }) { i, ch ->
+        itemsIndexed(channels, key = { idx, _ -> keys[idx] }) { i, ch ->
             if (ch.divider) {
                 Row(Modifier.fillMaxWidth().padding(start = 14.u, top = 16.u, bottom = 6.u), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.width(18.u).height(1.u).background(C.Line2))
@@ -227,8 +251,10 @@ private fun ChannelList(vm: AppViewModel, channels: List<Channel>, onFocus: (Cha
             FocusItem(
                 onClick = { vm.playLive(channels, i) },
                 onLongClick = { vm.toggleFavorite(ch.favKey, ch.display) },
-                onFocus = { onFocus(ch) },
+                onFocus = { nav.focusedKey = keys[i]; onFocus(ch) },
                 modifier = Modifier
+                    .focusRequester(nav.requester(keys[i]))
+                    .verticalKeys { down -> move(i, down) }
                     .fillMaxWidth()
                     .height(64.u)
                     .let { if (i == startIndex) it.focusRequester(firstFocus) else it },

@@ -59,6 +59,16 @@ Tick each box. Note the build number at the top of the run.
 - [ ] G2. Focusing a cell updates the header (title, times, time left, description).
 - [ ] G3. The Favorites pill toggles. The Group picker opens on the current group, and choosing one changes the Live TV group too.
 - [ ] G4. Rows without EPG are compact and read "no guide information".
+- [ ] G5 (2.6). In a region with divider rows (News, Sports, Movies…), hold ▼ from the first row to the last: focus visits every playable row in order, never jumps, and stays at the same time. ▼ on the last row does nothing.
+- [ ] G6 (2.6). Hold ▲ back to the top: same, then ▲ on the top row goes to the header pills.
+- [ ] G7 (2.6). Group picker: hold ▼ through all groups across several region headings, no jumps; "Show all regions" can be reached and pressed.
+- [ ] G8 (2.6). Open a group whose rows still say "Loading…" and leave focus on one: when its guide data arrives, focus stays on that row.
+- [ ] G9 (2.6). Move ▶ to a later show, then ▼ several times: focus stays at that later time in each row.
+- [ ] G10 (2.6). Diagnostics has no "Guide focus: expected row" warnings after G5–G9.
+
+## F2. Live TV lists (2.6)
+- [ ] F2a. In a group with divider rows, hold ▼ through the channel list: every channel in order, headings skipped, no jumps.
+- [ ] F2b. Hold ▼ through the Groups column across region headings: no jumps; the channel list follows each group.
 
 ## H. Home, Favorites, Recent
 - [ ] H1. Home rows appear in the order Favorites, Recently watched, Recently added. Empty rows are hidden. The empty state appears with no data.
@@ -115,10 +125,26 @@ Tick each box. Note the build number at the top of the run.
 - [ ] J5-1. LinkedIn is gone. The Sparky card shows her photo, the note with "Sparky" in bold, and the two QR codes, all inside the safe area.
 - [ ] J5-2. Scanning the Venmo code opens Ashwin's Venmo; scanning the Zelle code opens Zelle for Ashwin's email.
 
+## J6. Sleep timer (2.6)
+- [ ] J6a. On live TV, pause (OK), ▼ to the buttons: Sleep is after Audio & subtitles. In a movie, Sleep is after Audio & subtitles too.
+- [ ] J6b. Sleep opens "Sleep timer" with focus on 90 min (no timer running). Back closes with no change.
+- [ ] J6c. Choose 30 min: toast "Sleep timer: 30 min"; the clock shows "Sleep in 30 min". Reopen: focus is on 30 min with ✓.
+- [ ] J6d. At live, ▶ opens Audio & subtitles; its last row "Sleep timer…" shows "Sleep in 29 min" and opens the same panel.
+- [ ] J6e. Change channels, and go from live TV to a movie: the timer keeps counting.
+- [ ] J6f. With 1 minute left: toast "Sleeping in 1 minute · press any key to keep watching". Press any key: "Sleep timer: 30 min", and the key does nothing else (no pause, no channel change).
+- [ ] J6g. Let it run out: playback stops, the player closes to the page it came from, toast "Sleep timer stopped playback". The Live TV preview doesn't restart until a key is pressed. Diagnostics shows "Stream: none" and the log line "Sleep timer: stopped playback after 30 min".
+- [ ] J6h. Off cancels: toast "Sleep timer off"; the clock no longer shows "Sleep in".
+- [ ] J6i. Set Settings → Sleep timer default to 60: the panel then opens on 60 min.
+- [ ] J6j. Start a timer, close the app (Back twice from Home), reopen: no timer runs.
+
 ## K. Search and Settings
 - [ ] K1. Typing 2+ letters shows channel, movie and series rows. Region filtering applies; favourites are always included.
 - [ ] K2. Settings rows all work. Playlist info is correct (status, expiry, counts).
 - [ ] K3. Clear watch history removes resume points **and** saved audio/subtitle choices. Favourites and recents stay.
+- [ ] K4 (2.6). Settings shows PLAYBACK, LIBRARY, ACCOUNT and APP with single-line rows (value on the right) and fits on screen without scrolling (no update pending). All rows are reachable with ▲/▼ in order, starting on Subtitle style.
+- [ ] K5 (2.6). Sleep timer default: ◀ ▶ change 30 / 60 / 90 (no wrap; focus stays on the row); OK steps 30 → 60 → 90 → 30. The value is kept after restarting the app.
+- [ ] K6 (2.6). Clear watch history: the first OK shows "Press OK again to clear", which goes back after 3 s; two OKs within 3 s clear with "Watch history cleared".
+- [ ] K7 (2.6). Version shows "2.6 (build N)"; OK checks for updates with the usual toasts. With an update pending, the update row is on top and focused first.
 
 ## L0. Phone pages and stored login (2.5.2)
 - [ ] L0a. Scanning the Setup QR opens "Connect your TV". Typing the IP and port without `?k=…`, or with a wrong key, shows "Scan the QR code on your TV to open this page." (403). Same for the Diagnostics QR.
@@ -149,7 +175,7 @@ Tick each box. Note the build number at the top of the run.
 | R5 | 2.1 dev | Crash on start: `init {}` ran before properties were initialised | Cold start after clearing data and with saved data |
 | R6 | 2.1 | Nav rail overlapped tiles; edges cut off on TV | D3 |
 | R7 | 2.1 | Back/◀ from full screen went to the wrong page; preview restarted | F4, F7 |
-| R8 | 2.1 | Duplicate provider IDs crashed lazy lists ("key already used") | Lists use position-prefixed keys `"$index:$id"`; scroll every list fully |
+| R8 | 2.1 | Duplicate provider IDs crashed lazy lists ("key already used") | Lists use stable id keys with `#2` added to repeats (2.6; position-prefixed keys before); scroll every list fully |
 | R9 | 2.2 | Build broke: Media3 `C` vs theme `C` ambiguity | Clean build passes; `MediaC` alias used |
 | R10 | 2.2 | **VOD controls: after the overlay hid, no remote key brought it back; the gear UI was poor** | J1–J5 |
 | R11 | 2.4 | Diagnostics showed "(build 14) (build 14)" | Diagnostics header shows the build once |
@@ -160,4 +186,5 @@ Tick each box. Note the build number at the top of the run.
 | R17 | 2.5 | Resuming after a 1-minute pause sat there doing nothing | Pause 1 min on a catch-up channel, resume: it plays from the pause, or within 10 s goes live with a message; the log explains |
 | R18 | 2.5 | Copy everything did nothing on the phone (http page) | Copy pastes the full log; Select all works |
 | R19 | 2.5.2 | Setup and log pages open to anyone on the Wi-Fi; login in plain text; update not verified | See L0a–L0d and A6 |
+| R20 | 2.5 | **TV Guide: scrolling down with ▼, focus sometimes jumped to an unexpected place** (across divider rows, or to rows not yet on screen) | G5–G8, F2a, F2b |
 | R15 | 2.4 | Vague "This channel isn't playing right now." with no reason | Play on 2 devices: the message names the code (509) and the fix |

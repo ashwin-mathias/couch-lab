@@ -29,6 +29,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
@@ -88,12 +89,14 @@ fun T(
     maxLines: Int = 1,
     letterSpacing: Float = 0f,
     lineHeight: Float = 0f,
+    textAlign: TextAlign? = null,
 ) {
     Text(
         text = text,
         modifier = modifier,
         maxLines = maxLines,
         overflow = TextOverflow.Ellipsis,
+        textAlign = textAlign,
         style = TextStyle(
             fontFamily = Inter,
             fontSize = size.su,

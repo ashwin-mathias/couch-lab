@@ -93,17 +93,23 @@ fun PlayerSurface(modifier: Modifier = Modifier) {
                 descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
             }
         },
-        // Reading the shared style here re-applies it whenever it changes.
-        update = { SubStyle.apply(it.subtitleView, SubtitleStyleState.style) },
+        // Reading the shared style here re-applies it whenever it changes. Reading the generation
+        // re-attaches the view after the sleep timer released the player.
+        update = {
+            @Suppress("UNUSED_VARIABLE") val gen = PlayerHolder.generation
+            val p = PlayerHolder.get(it.context)
+            if (it.player !== p) it.player = p
+            SubStyle.apply(it.subtitleView, SubtitleStyleState.style)
+        },
         onRelease = { it.player = null },
     )
 }
 
 @Composable
-fun Toast(text: String?, onDone: () -> Unit, modifier: Modifier = Modifier) {
+fun Toast(text: String?, onDone: () -> Unit, modifier: Modifier = Modifier, durationMs: Long = 2_000L) {
     if (text == null) return
     LaunchedEffect(text) {
-        delay(2000)
+        delay(durationMs)
         onDone()
     }
     Box(

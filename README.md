@@ -36,12 +36,14 @@ To update, repeat step 4. The code always points to the newest build. Your login
 | Full-screen live TV | ▶ | Audio & subtitles |
 | Full-screen live TV | Hold OK | Add / remove favorite |
 | Live TV, paused or behind live | ◀ / ▶ | Rewind / forward (hold to go faster) |
-| Live TV, paused or behind live | ▼ | Buttons: Start of show, Go live, Audio & subtitles |
+| Live TV, paused or behind live | ▼ | Buttons: Start of show, Go live, Audio & subtitles, Sleep |
 | Live TV, paused or behind live | Back | Leave |
+| TV guide | ▲ / ▼ | Next / previous channel, at the same time (headings skipped) |
 | TV guide | ◀ on the first show | Go back in time (catch-up channels), ↺ shows can be replayed |
 | Movies & episodes | OK | Play / pause |
 | Movies & episodes | ◀ / ▶ | Back / forward 10 seconds (hold to go faster) |
-| Movies & episodes | ▼ | Buttons: audio & subtitles, next episode, start over |
+| Movies & episodes | ▼ | Buttons: audio & subtitles, sleep, next episode, start over |
+| Any player | Sleep, or ▶ / MENU → Sleep timer… | Stop playback after 30, 60 or 90 min; any key in the last minute keeps watching |
 | Movies & episodes | Back | Hide the controls, then leave (your place is saved) |
 
 ## Documentation

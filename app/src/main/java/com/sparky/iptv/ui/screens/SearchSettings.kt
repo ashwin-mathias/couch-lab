@@ -25,6 +25,11 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -176,43 +181,83 @@ fun SettingsScreen(vm: AppViewModel) {
     val version = remember {
         runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: ""
     }
+    var sleepDefault by remember { mutableIntStateOf(vm.prefs.sleepDefault) }
+    fun setSleepDefault(m: Int) { sleepDefault = m; vm.prefs.sleepDefault = m }
+    // Clear watch history asks for a second OK within 3 s.
+    var confirmClear by remember { mutableStateOf(false) }
+    LaunchedEffect(confirmClear) { if (confirmClear) { delay(3000); confirmClear = false } }
     val firstFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(150); runCatching { firstFocus.requestFocus() } }
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 48.u, vertical = 32.u), verticalArrangement = Arrangement.spacedBy(24.u)) {
+    Column(Modifier.fillMaxSize().padding(start = 48.u, end = 48.u, top = 24.u, bottom = 16.u), verticalArrangement = Arrangement.spacedBy(16.u)) {
         T("Settings", size = 30, weight = FontWeight.Bold)
         Row(horizontalArrangement = Arrangement.spacedBy(48.u)) {
-            Column(Modifier.width(520.u).verticalScroll(rememberScrollState()).padding(bottom = 32.u), verticalArrangement = Arrangement.spacedBy(8.u)) {
+            // Fits on screen at 1080p; scrolls only as a fallback (for example with an update row).
+            Column(Modifier.width(520.u).verticalScroll(rememberScrollState()).padding(bottom = 24.u), verticalArrangement = Arrangement.spacedBy(4.u)) {
                 val upd = vm.update
                 if (upd != null) {
                     SettingRow(
                         vm.updateProgress ?: "Update available — install now",
-                        "${upd.title}. Downloads and opens Android's installer.",
+                        upd.title,
                         Modifier.focusRequester(firstFocus), highlight = true,
                     ) { vm.installUpdate() }
                 }
-                SettingRow("Change login", "Scan a QR code and enter a new login on your phone", if (upd == null) Modifier.focusRequester(firstFocus) else Modifier) { vm.changeLogin() }
+
+                GroupHeading("Playback", first = upd == null)
+                SettingRow(
+                    "Subtitle style", com.sparky.iptv.player.SubtitleStyleState.style.summary,
+                    if (upd == null) Modifier.focusRequester(firstFocus) else Modifier,
+                ) { vm.push(Screen.SubtitleStyle) }
+                // ◀ ▶ change the length; OK steps 30 → 60 → 90 → 30.
+                val choices = com.sparky.iptv.data.SLEEP_CHOICES
+                SettingRow(
+                    "Sleep timer default", "$sleepDefault min",
+                    Modifier.onPreviewKeyEvent { ev ->
+                        if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        val i = choices.indexOf(sleepDefault).coerceAtLeast(0)
+                        when (ev.nativeKeyEvent.keyCode) {
+                            android.view.KeyEvent.KEYCODE_DPAD_LEFT -> { setSleepDefault(choices[(i - 1).coerceAtLeast(0)]); true }
+                            android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> { setSleepDefault(choices[(i + 1).coerceAtMost(choices.lastIndex)]); true }
+                            else -> false
+                        }
+                    },
+                ) {
+                    val i = choices.indexOf(sleepDefault).coerceAtLeast(0)
+                    setSleepDefault(choices[(i + 1) % choices.size])
+                }
+
+                GroupHeading("Library")
                 val regionSummary = when {
-                    vm.myRegions.isEmpty() -> "Showing all regions"
+                    vm.myRegions.isEmpty() -> "All regions"
                     else -> vm.myRegions.joinToString(", ") { com.sparky.iptv.data.Names.regionLabel(it) }
                 }
                 SettingRow("My regions", regionSummary) { vm.push(Screen.Regions(firstRun = false)) }
-                SettingRow("Subtitle style", com.sparky.iptv.player.SubtitleStyleState.style.summary) { vm.push(Screen.SubtitleStyle) }
                 val last = vm.prefs.lastRefresh
-                val ago = if (last <= 0L) "Not updated yet" else {
-                    val mins = (System.currentTimeMillis() - last) / 60_000
-                    when {
-                        mins < 1 -> "Updated just now"
-                        mins < 60 -> "Updated $mins min ago"
-                        mins < 48 * 60 -> "Updated ${mins / 60} h ago"
-                        else -> "Updated ${mins / 1440} days ago"
-                    } + " · updates automatically once a day"
+                val ago = when {
+                    vm.refreshing -> "Updating…"
+                    last <= 0L -> "Not updated yet"
+                    else -> {
+                        val mins = (System.currentTimeMillis() - last) / 60_000
+                        when {
+                            mins < 1 -> "Updated just now"
+                            mins < 60 -> "Updated $mins min ago"
+                            mins < 48 * 60 -> "Updated ${mins / 60} h ago"
+                            else -> "Updated ${mins / 1440} days ago"
+                        }
+                    }
                 }
-                SettingRow(if (vm.refreshing) "Updating playlist…" else "Update playlist now", ago) { vm.refreshInBackground(showToast = true) }
-                SettingRow("Clear watch history", "Removes resume points for movies and episodes") { vm.clearHistory() }
-                SettingRow("Check for updates", "Looks for a newer version on GitHub") { vm.checkForUpdate(manual = true) }
-                SettingRow("Diagnostics", "Activity log and last error, viewable on your phone") { vm.push(Screen.Diagnostics) }
-                SettingRow("About Sparky IPTV", "Who made it, and what's new in each version") { vm.push(Screen.About) }
+                SettingRow("Update playlist now", ago) { vm.refreshInBackground(showToast = true) }
+                SettingRow(if (confirmClear) "Press OK again to clear" else "Clear watch history", "") {
+                    if (confirmClear) { confirmClear = false; vm.clearHistory() } else confirmClear = true
+                }
+
+                GroupHeading("Account")
+                SettingRow("Change login", p?.name ?: "") { vm.changeLogin() }
+
+                GroupHeading("App")
+                SettingRow("Version", version) { vm.checkForUpdate(manual = true) }
+                SettingRow("Diagnostics", "") { vm.push(Screen.Diagnostics) }
+                SettingRow("About Sparky IPTV", "") { vm.push(Screen.About) }
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.u)) {
                 Label("Playlist")
@@ -226,21 +271,28 @@ fun SettingsScreen(vm: AppViewModel) {
                     acct.maxConnections?.let { Info("Connections", it) }
                 }
                 Info("Library", "${vm.library.channels.size} channels · ${vm.library.movies.size} movies · ${vm.library.series.size} series")
-                Spacer(Modifier.height(8.u))
-                Label("App")
-                Info("Version", "Sparky IPTV $version")
             }
         }
     }
 }
 
+/** Group heading in Settings: the Label style, 16 px above (none for the first) and 6 px below. */
 @Composable
-private fun SettingRow(title: String, sub: String, modifier: Modifier = Modifier, highlight: Boolean = false, onClick: () -> Unit) {
-    FocusItem(onClick = onClick, container = if (highlight) C.Raised else C.Panel, modifier = modifier.fillMaxWidth().height(66.u)) { f ->
-        Column(Modifier.fillMaxSize().padding(horizontal = 20.u), verticalArrangement = Arrangement.Center) {
+private fun GroupHeading(text: String, first: Boolean = false) {
+    Label(text, modifier = Modifier.padding(start = 4.u, top = if (first) 0.u else 12.u, bottom = 2.u))
+}
+
+/** Single-line Settings row, 48 px: title on the left, current value on the right. */
+@Composable
+private fun SettingRow(title: String, value: String, modifier: Modifier = Modifier, highlight: Boolean = false, onClick: () -> Unit) {
+    FocusItem(onClick = onClick, container = if (highlight) C.Raised else C.Panel, modifier = modifier.fillMaxWidth().height(48.u)) { f ->
+        Row(Modifier.fillMaxSize().padding(horizontal = 20.u), verticalAlignment = Alignment.CenterVertically) {
             T(title, size = 17, weight = FontWeight.SemiBold, color = if (f) C.OnFocus else C.Text)
-            Spacer(Modifier.height(4.u))
-            T(sub, size = 13, color = if (f) C.OnFocusMuted else C.Dim)
+            Spacer(Modifier.width(16.u))
+            T(
+                value, size = 14, color = if (f) C.OnFocusMuted else C.Dim,
+                modifier = Modifier.weight(1f), textAlign = TextAlign.End,
+            )
         }
     }
 }

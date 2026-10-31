@@ -68,6 +68,8 @@ data class VodItem(
     val saveProgress: Boolean = true,
 )
 
+const val SLEEP_WARNING = "Sleeping in 1 minute · press any key to keep watching"
+
 const val GROUP_FAV = "__fav"
 const val GROUP_ALL = "__all"
 const val GROUP_RECENT = "__recent"
@@ -695,6 +697,92 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun stopPreview() = PlayerHolder.stop()
+
+    // ---------- sleep timer ----------
+    // Lives here (not in the player), so it keeps running across channel changes and between live
+    // TV and movies. It's in memory only: closing the app clears it.
+
+    /** Length of the running timer in minutes; 0 = off. */
+    var sleepMinutes by mutableIntStateOf(0)
+        private set
+    /** When the running timer ends ([android.os.SystemClock.elapsedRealtime]). */
+    var sleepEndsAt by mutableLongStateOf(0L)
+        private set
+    private var sleepJob: kotlinx.coroutines.Job? = null
+    /** Key whose release is swallowed after it extended the timer. */
+    private var swallowKeyUp = -1
+
+    fun sleepLeftMs(): Long =
+        if (sleepMinutes == 0) 0L else (sleepEndsAt - android.os.SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+
+    /** Starts the timer for [minutes], or turns it off for 0. */
+    fun setSleep(minutes: Int) {
+        sleepJob?.cancel()
+        sleepJob = null
+        if (minutes <= 0) {
+            if (sleepMinutes != 0) AppLog.i("Sleep timer: off")
+            sleepMinutes = 0
+            sleepEndsAt = 0L
+            toast = "Sleep timer off"
+            return
+        }
+        sleepMinutes = minutes
+        sleepEndsAt = android.os.SystemClock.elapsedRealtime() + minutes * 60_000L
+        toast = "Sleep timer: $minutes min"
+        AppLog.i("Sleep timer: $minutes min")
+        sleepJob = viewModelScope.launch {
+            var warned = false
+            while (true) {
+                val left = sleepLeftMs()
+                if (left <= 0L) break
+                if (!warned && left <= 60_000L) {
+                    warned = true
+                    toast = SLEEP_WARNING
+                    AppLog.i("Sleep timer: 1 minute left")
+                }
+                delay(if (left > 61_000L) left - 60_000L else minOf(left, 1_000L))
+            }
+            sleepFinished()
+        }
+    }
+
+    private fun sleepFinished() {
+        val m = sleepMinutes
+        sleepJob = null
+        sleepMinutes = 0
+        sleepEndsAt = 0L
+        // Release the player so the stream connection closes, and keep previews from restarting
+        // until someone presses a key.
+        liveHandoff = false
+        PlayerHolder.release()
+        PlayerHolder.held = true
+        if (current is Screen.Player) pop()
+        toast = "Sleep timer stopped playback"
+        AppLog.i("Sleep timer: stopped playback after $m min")
+    }
+
+    /**
+     * Sees every remote key before the screens do. Any key lets playback start again after the
+     * sleep timer stopped it. In the timer's last minute, a key restarts the timer at the same
+     * length and does nothing else (its release is swallowed too). Returns true to swallow the key.
+     */
+    fun onAnyKey(e: android.view.KeyEvent): Boolean {
+        if (e.action == android.view.KeyEvent.ACTION_UP && e.keyCode == swallowKeyUp) {
+            swallowKeyUp = -1
+            return true
+        }
+        if (e.action != android.view.KeyEvent.ACTION_DOWN) return false
+        PlayerHolder.held = false
+        if (sleepMinutes > 0 && sleepLeftMs() <= 60_000L) {
+            if (e.repeatCount == 0) {
+                AppLog.i("Sleep timer: extended by a key press")
+                setSleep(sleepMinutes)
+            }
+            swallowKeyUp = e.keyCode
+            return true
+        }
+        return false
+    }
 
     // ---------- subtitle style ----------
     fun setSubStyle(s: com.sparky.iptv.player.SubStyle) {
