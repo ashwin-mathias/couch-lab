@@ -43,6 +43,7 @@ import fi.iki.elonen.NanoHTTPD
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -140,6 +141,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 loadSteps.add(LoadStep("Opening your saved channels", com.sparky.iptv.data.StepStatus.ACTIVE, "Reading…"))
                 loadFraction = 0.05f
             }
+            // 2.9: movies and series are read at the same time as the channels (on another core),
+            // instead of after Home appears, so they're ready about as soon as Home is.
+            val t0 = System.currentTimeMillis()
+            val vodEarly = if (hasSaved && prefs.playlist?.type != "m3u") {
+                vodLoading = true
+                viewModelScope.async(Dispatchers.IO) {
+                    runCatching {
+                        repo.loadCachedVod(Library(emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList())) { msg ->
+                            viewModelScope.launch(Dispatchers.Main) { vodProgress = msg }
+                        }
+                    }
+                }
+            } else null
             // Step 1: live channels only, so Home opens within a few seconds.
             val cached = try {
                 repo.loadCachedLive { msg ->
@@ -153,15 +167,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 loadFraction = 1f
                 setLib(cached)
                 resetTo(Screen.Home)
+                AppLog.i("Startup: Home in %.1f s".format((System.currentTimeMillis() - t0) / 1000.0))
                 checkForUpdate()
                 maybePromptRegions()
                 // Step 2: movies and series load in the background.
                 if (prefs.playlist?.type != "m3u") {
                     vodLoading = true
                     try {
-                        val full = repo.loadCachedVod(cached) { msg ->
+                        val full = vodEarly?.await()?.getOrThrow() ?: repo.loadCachedVod(cached) { msg ->
                             viewModelScope.launch(Dispatchers.Main) { vodProgress = msg }
                         }
+                        AppLog.i("Startup: movies and series in %.1f s".format((System.currentTimeMillis() - t0) / 1000.0))
                         // A fresh download may have finished meanwhile; don't replace it with older data.
                         if (library.movies.isEmpty() && library.series.isEmpty()) {
                             setLib(Library(library.liveCats, library.channels, full.vodCats, full.movies, full.seriesCats, full.series))
@@ -179,6 +195,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 maybeDailyRefresh()
             } else {
+                vodEarly?.cancel()
+                vodLoading = false
+                vodProgress = null
                 if (hasSaved) { loadSteps.clear(); loadSteps.addAll(repo.stepsFor(prefs.playlist)) }
                 try {
                     refreshing = true
@@ -260,10 +279,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 updateProgress = "Starting download…"
                 val f = Updater.apkFile(app)
-                repo.download(u.apkUrl, f, expectedSha256 = u.sha256, requireHttps = true) { b ->
-                    viewModelScope.launch(Dispatchers.Main) { updateProgress = "Downloading · ${Repository.mb(b)}" }
+                // 2.9: the same build already downloaded (for example after backing out of the
+                // installer) is reused, not downloaded again.
+                if (Updater.alreadyDownloaded(app, u.sha256)) {
+                    AppLog.i("Update build ${u.build} already downloaded; opening the installer")
+                } else {
+                    repo.download(u.apkUrl, f, expectedSha256 = u.sha256, requireHttps = true) { b ->
+                        viewModelScope.launch(Dispatchers.Main) { updateProgress = "Downloading · ${Repository.mb(b)}" }
+                    }
+                    AppLog.i("Downloaded update build ${u.build} (${Repository.mb(f.length())})")
                 }
-                AppLog.i("Downloaded update build ${u.build} (${Repository.mb(f.length())})")
                 updateProgress = null
                 installLockUntil = System.currentTimeMillis() + 10_000
                 Updater.launchInstaller(app)
@@ -908,13 +933,89 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    // ---------- channel switch timing ----------
-    val switchTimes = mutableStateListOf<Long>()
+    // ---------- live format test (2.9) ----------
+    var formatTest by mutableStateOf<String?>(null)
+        private set
 
-    fun recordSwitch(ms: Long) {
+    /**
+     * Plays one channel 3 times in each live format and reports both averages. If ts is clearly
+     * faster, Live format is set to ts (Ashwin's choice, 2.9); Automatic stays the default otherwise.
+     */
+    fun testLiveFormats() {
+        if (formatTest?.startsWith("Testing") == true) return
+        val chans = library.channels.filter { !it.divider && it.directUrl == null }
+        val byId = chans.associateBy { it.id }
+        val ch = prefs.lastChannel?.let { byId[it] }
+            ?: favorites.firstNotNullOfOrNull { k -> if (k.startsWith("live:")) byId[k.removePrefix("live:")] else null }
+            ?: chans.firstOrNull()
+        if (ch == null) { formatTest = "No live channels to test."; return }
+        formatTest = "Testing…"
+        viewModelScope.launch {
+            val r = com.sparky.iptv.player.FormatTest.run(getApplication(), ch) { formatTest = it }
+            val m = r.avg(r.m3u8)
+            val t = r.avg(r.ts)
+            val parts = mutableListOf(
+                "m3u8 " + (m?.let { "average %.1f s".format(it) } ?: "didn't play"),
+                "ts " + (t?.let { "average %.1f s".format(it) } ?: "didn't play"),
+            )
+            // "Clearly faster": at least 0.2 s on average, from at least 2 working tries.
+            if (t != null && r.ts.size >= 2 && (m == null || t <= m - 0.2)) {
+                if (prefs.effectiveLiveFormat != "ts") {
+                    setLiveFormatChoice("ts")
+                    parts += "Live format set to ts"
+                } else parts += "Live format is ts"
+            }
+            formatTest = "Live formats: " + parts.joinToString(" · ")
+            AppLog.i(formatTest!!)
+        }
+    }
+
+    /** Settings → Playback → Live format. Takes effect on the next channel, without a restart. */
+    fun setLiveFormatChoice(choice: String) {
+        prefs.liveFormatChoice = choice
+        com.sparky.iptv.data.StreamUrls.liveFormat = prefs.effectiveLiveFormat
+        AppLog.i("Live format: $choice (links use ${prefs.effectiveLiveFormat})")
+    }
+
+    // ---------- connection limit (2.9) ----------
+    var connLimitHits by mutableIntStateOf(0)
+        private set
+    private var connLimitDay = ""
+    private var connLimitLast = ""
+
+    fun noteConnLimit() {
+        val now = java.util.Date()
+        val day = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(now)
+        if (day != connLimitDay) { connLimitDay = day; connLimitHits = 0 }
+        connLimitHits++
+        connLimitLast = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US).format(now)
+    }
+
+    fun connLimitSummary(): String {
+        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+        val n = if (connLimitDay == today) connLimitHits else 0
+        return if (n == 0) "Connection limit: no hits today"
+        else "Connection limit: $n hit${if (n == 1) "" else "s"} today (last $connLimitLast)"
+    }
+
+    // ---------- pause without catch-up (2.9) ----------
+    /** Logs how a resume after a live pause went, and remembers the longest pause that worked. */
+    fun notePauseResume(chNum: Int, seconds: Long, worked: Boolean) {
+        AppLog.i("Pause on $chNum: $seconds s, resume ${if (worked) "worked" else "failed"}")
+        if (worked && seconds > prefs.pauseNoCatchupMax) prefs.pauseNoCatchupMax = seconds.toInt()
+    }
+
+    // ---------- channel switch timing ----------
+    // 2.9: the total from the key press, and the stream part (after the 300 ms settle wait).
+    val switchTimes = mutableStateListOf<Long>()
+    val switchStreamTimes = mutableStateListOf<Long>()
+
+    fun recordSwitch(ms: Long, streamMs: Long = ms) {
         switchTimes.add(ms)
+        switchStreamTimes.add(streamMs)
         while (switchTimes.size > 10) switchTimes.removeAt(0)
-        AppLog.i("Channel switch: %.1f s".format(ms / 1000.0))
+        while (switchStreamTimes.size > 10) switchStreamTimes.removeAt(0)
+        AppLog.i("Channel switch: %.1f s (stream %.1f s)".format(ms / 1000.0, streamMs / 1000.0))
     }
 
     fun nowNext(chId: String, now: Long): Pair<EpgEntry?, EpgEntry?> {
