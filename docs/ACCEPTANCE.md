@@ -141,7 +141,7 @@ Tick each box. Note the build number at the top of the run.
 ## J3. Channel switching (2.5)
 - [ ] J3-1. ▲▼ in full-screen live updates the info bar instantly. The picture follows in **under 2 s** on the TCL dongle and the Shield (see "Channel switch: average" in Diagnostics).
 - [ ] J3-2. Pressing ▲ five times quickly loads only the last channel (the log shows one switch, not five).
-- [ ] J3-3. Never more than one stream: with a second device playing on the same account, Sparky shows "Provider says too many connections (…)". It doesn't hammer the provider with format retries.
+- [ ] J3-3. Never more than one stream: with a second device playing on the same account, Sparky waits three times ("Waiting for the provider · try 1 of 3" … 3 of 3), then shows "Your plan allows one stream. Another device may be watching. Press OK to try again." (2.9). It doesn't try the other format.
 
 ## J4. Pause, rewind and catch-up (2.5)
 - [ ] J4-0. Diagnostics → Test catch-up reports "Catch-up works (…)". If it fails, record the reason here.
@@ -149,7 +149,7 @@ Tick each box. Note the build number at the top of the run.
 - [ ] J4-2. On a catch-up channel, resume after 2 minutes continues from the pause moment, not live. The chip shows "BEHIND LIVE 2:0x".
 - [ ] J4-3. ◀ rewinds 10 s per press; holding goes faster; ▶ forward. Forward to within 30 s of now goes live.
 - [ ] J4-4. Start of show plays from the programme's start. Go live returns to live.
-- [ ] J4-5. On a channel without catch-up: pause works, with the hint "Pause only · no rewind". After a long pause, resume goes live with the toast.
+- [ ] J4-5. On a channel without catch-up: pause works, with the hint "Pause · a few seconds only" (2.9). After a long pause, resume goes live with the toast.
 - [ ] J4-6. Back always leaves, from any pause or behind-live state. CH± changes channel and starts it live.
 - [ ] J4-7. Hold OK still toggles the favourite in every state.
 - [ ] J4-8. Guide: ◀ on the first cell of a catch-up channel moves 90 min back, repeatedly, up to 7 days. Replayable cells show ↺; the Now pill returns.
@@ -180,13 +180,29 @@ Tick each box. Note the build number at the top of the run.
 - [ ] K4 (2.6). Settings shows PLAYBACK, LIBRARY, ACCOUNT and APP with single-line rows (value on the right) and fits on screen without scrolling (no update pending). All rows are reachable with ▲/▼ in order, starting on Subtitle style.
 - [ ] K5 (2.6). Sleep timer default: ◀ ▶ change 30 / 60 / 90 (no wrap; focus stays on the row); OK steps 30 → 60 → 90 → 30. The value is kept after restarting the app.
 - [ ] K6 (2.6). Clear watch history: the first OK shows "Press OK again to clear", which goes back after 3 s; two OKs within 3 s clear with "Watch history cleared".
-- [ ] K7 (2.6). Version shows "2.8 (build N)"; OK checks for updates with the usual toasts. With an update pending, the update row is on top and focused first.
+- [ ] K7 (2.6). Version shows "2.9 (build N)"; OK checks for updates with the usual toasts. With an update pending, the update row is on top and focused first.
 
 ## L0. Phone pages and stored login (2.5.2)
 - [ ] L0a. Scanning the Setup QR opens "Connect your TV". Typing the IP and port without `?k=…`, or with a wrong key, shows "Scan the QR code on your TV to open this page." (401 since 2.8). Same for the Diagnostics QR.
 - [ ] L0b. Leaving Setup and returning gives a new QR; the old link no longer works.
 - [ ] L0c. After upgrading from 2.5.1, the login still works with no re-entry. `adb shell run-as com.sparky.iptv cat shared_prefs/sparky.xml` shows `playlist_enc` and no `playlist`, and no readable password.
 - [ ] L0d. `adb backup` of the app produces no data (backup disabled).
+
+## L9. Connection limit, switching, pauses, update, startup and log (2.9)
+- [ ] L9a. Switch channels quickly 20 times (▲ ▲ ▲ …, letting each play): no "too many connections". Diagnostics shows "Connection limit: no hits today".
+- [ ] L9b. Play on the Shield, then start a channel on the Chromecast: "Waiting for the provider · try 1 of 3", 2 of 3, 3 of 3 (about 19 s in all), then "Your plan allows one stream. Another device may be watching. Press OK to try again." Stop the Shield, press OK: the channel plays. The log shows each try and the code; the screen never shows "HTTP 458".
+- [ ] L9c. Same in a movie: the retries resume at the same position; after the message, OK plays from there and Back leaves.
+- [ ] L9d. Changing channel while "Waiting for the provider" cancels the retries (the log shows no further tries for the old channel).
+- [ ] L9e. Diagnostics → Test live formats: the pill counts "Testing… 1 of 6" to 6 of 6, then the header shows "Live formats: m3u8 average X s · ts average Y s". If ts was clearly faster: "· Live format set to ts", and Settings → Live format shows "ts".
+- [ ] L9f. Settings → Live format: ◀ ▶ and OK cycle Automatic (m3u8) → ts → m3u8. The next channel uses the new format without restarting (Diagnostics: "live format ts (chosen)"). Backup and restore keeps the choice.
+- [ ] L9g. Switch 10 channels: Diagnostics "Channel switch: average … (last 10) · stream …" matches the log lines. Going from Live TV's preview to full screen on the same channel adds no 0.2 s entry. A switch that needed a retry is logged "(after a retry)" and isn't in the average.
+- [ ] L9h. With the 0.5 s start buffer, watch 30 minutes of live TV and a movie: no more stalls (buffering spinner) than in 2.8.
+- [ ] L9i. Channel without catch-up: pause 2 s → resumes where paused. Pause 15 s → back to live within about 4 s of pressing Resume, with the toast "This channel can't pause that long — back to live". The log shows "Pause on N: 15 s, resume failed"; Diagnostics shows the longest pause that worked.
+- [ ] L9j. Update: press Install, back out of the installer, wait 15 s, press Install again: the installer opens at once; the log shows one "Downloaded update" line and one "already downloaded".
+- [ ] L9k. Cold start with a saved library: Home appears as before (about 5 s or less). The log shows "Startup: Home in X s" and "Startup: movies and series in Y s", with Y only a little more than X (2.8: movies about 2.5 s after Home). Movies, Series and the Recently added row work.
+- [ ] L9l. Test build with a debug shortcut writing 10,000 lines (not shipped): app_log.txt never goes above about 256 KB plus 100 lines; Diagnostics opens without a delay and shows "Log file: … KB · … lines".
+- [ ] L9m. A message logged 100 times in a loop shows 20 lines, then one "(repeated 80 more times in the last minute)" line.
+- [ ] L9n. After midnight, or at app start, the log shows a date line ("— Sun 1 Nov 2026 —") before the next entry.
 
 ## L1. Size, speed and phone-page limits (2.8)
 - [ ] L1a. The APK on the release page is about 4 MB (11 MB in 2.7). It installs over 2.7.1 with the in-app update.
@@ -235,4 +251,9 @@ Tick each box. Note the build number at the top of the run.
 | R20 | 2.5 | **TV Guide: scrolling down with ▼, focus sometimes jumped to an unexpected place** (across divider rows, or to rows not yet on screen) | G5–G8, F2a, F2b |
 | R21 | 2.6 | **Live TV: scrolling down the Groups pane, focus sometimes jumped to the channel pane** (the channel list took focus 150 ms after each group change) | F3a, F3g |
 | R22 | 2.7 | Scrolling could stutter because the saved login was decrypted through the Keystore for every channel row and guide cell | L1c |
+| R23 | 2.8 | **FOX NEWS failed with "too many connections" (HTTP 458)** after one 3 s retry; the old channel's kept-alive connection could still count | L9a, L9b |
+| R24 | 2.8 | Channel switch average flattered by a 0.2 s same-channel entry and inflated by a 4.9 s retry | L9g |
+| R25 | 2.8 | A failed resume after a pause without catch-up waited 10 s before going live | L9i |
+| R26 | 2.8 | The update downloaded twice when Install was pressed again 11 s later | L9j |
+| R27 | 2.8 | The log file was trimmed only at app start, so it could grow without limit while the app stayed open for days | L9l |
 | R15 | 2.4 | Vague "This channel isn't playing right now." with no reason | Play on 2 devices: the message names the code (509) and the fix |

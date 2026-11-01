@@ -8,6 +8,16 @@ Why the app is the way it is. Read this before changing behaviour, so settled qu
 
 | Version | Decision | Reason |
 |---|---|---|
+| 2.9 | **On a connection limit (HTTP 429/458/509), retry three times (3 s, 6 s, 10 s) and explain in plain words**; never show the raw code on screen | The 2.8 log showed FOX NEWS failing after a single 3 s retry. Ashwin wasn't using the Shield then, so the provider holding the slot is the likely cause |
+| 2.9 | **Close idle provider connections on every channel switch**, measured; fall back to "only after a 458" if switching gets slower | Ashwin chose this over evicting only after a 458; one connection allowed |
+| 2.9 | **Live format setting (Automatic / ts / m3u8) and a format test; if ts is clearly faster, the test switches Ashwin's TV to ts** | Ashwin's choice. Automatic stays the default |
+| 2.9 | Channel switch time excludes returns to the same channel and switches that needed a retry, and shows the stream part separately | The 2.8 average was flattered by a 0.2 s same-channel entry |
+| 2.9 | **Live start buffer 0.5 s** (was 1 s), shared with movies; keep only if rebuffering doesn't rise | Part of the under-2 s switching target |
+| 2.9 | **Pause without catch-up gives up after 4 s** (was 10 s), with a clearer label; going live automatically before the provider's limit is **not** done yet | The provider drops paused connections; Ashwin agreed to collect the real limit from the log first |
+| 2.9 | An already-downloaded update is reused, not downloaded again | The 2.8 update downloaded twice, 11 s apart |
+| 2.9 | **Movies and series are read at the same time as the channels at start**, and the saved files use a faster reader | Ashwin asked for faster startup. The plan's idea (open Home before movies load) was already how 2.0+ worked, so the gain had to come from reading faster |
+| 2.9 | The activity log file is capped while running, Diagnostics reads only its end, repeated lines are collapsed, and date lines are written | Google TV keeps the app alive for days; a logging loop could grow the file without limit |
+| 2.9 | **Next: a Windows 11 x64 version** (Compose for Desktop, shared code), libVLC via vlcj (repo moves to GPL), published in the Microsoft Store | Ashwin's direction, 2026-11-01; see the Windows plan |
 | 2.7.1 | **The squirrel on the TV in the icon is black**, not brown (launcher icon, banner, in-app logo) | Ashwin's request |
 | 2.8 | **Code review applied: smaller, faster, safer, behaviour unchanged** (R8, trimmed fonts, WebP; cached login; background search; shared connection pool; restore limits; shared phone server) | Ashwin asked for all review items in one release |
 | 2.8 | **Backup passphrase at least 10 characters** (was 6) | A backup in iCloud or Files can be guessed offline; Ashwin accepted the recommendation. PBKDF2 rounds stay 210,000 so older backups still open without a format change |
@@ -84,6 +94,8 @@ Why the app is the way it is. Read this before changing behaviour, so settled qu
 24. **Turning on R8 needs its own check on the TV.** Shrinking can remove code reached only by reflection; build it as a separate step and run the acceptance list.
 21. **Never move focus from an effect keyed on data.** `LaunchedEffect(channels) { requestFocus() }` in the channel list fired every time the Groups pane changed the group, so focus jumped panes (the 2.6 bug). Move focus only on an explicit user action or on first entry.
 22. **When a key opens a dialog on long press, open it on the key's release.** Otherwise the release (and repeats) arrive in the dialog and can press its first row.
+25. **One-connection plans need the old stream closed, not just replaced.** Swapping the media item left a kept-alive socket in the OkHttp pool that the provider could still count (HTTP 458). Stop the player and evict idle connections before opening the next stream.
+26. **Measure what you mean.** A timing that includes no-op cases (same channel, retries) makes the average look better than reality. Exclude them and log them separately.
 20. **On TV, never rely on the default ▲/▼ focus search across non-focusable rows in a lazy list.** Headings between rows, and rows that aren't composed yet, make it jump to a far cell, a header pill or another row (the 2.5 guide bug). Scroll to the target first, then request focus on it (`ListNav`).
 
 ## Known limitations (accepted)

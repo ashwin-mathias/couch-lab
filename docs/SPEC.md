@@ -1,6 +1,6 @@
 # Sparky IPTV — Product specification
 
-Version described: **2.8** (October 2026). This file says **what the app does**. How it looks is in [DESIGN.md](DESIGN.md), how it's built in [ARCHITECTURE.md](ARCHITECTURE.md), and how to prove it works in [ACCEPTANCE.md](ACCEPTANCE.md).
+Version described: **2.9** (November 2026). This file says **what the app does**. How it looks is in [DESIGN.md](DESIGN.md), how it's built in [ARCHITECTURE.md](ARCHITECTURE.md), and how to prove it works in [ACCEPTANCE.md](ACCEPTANCE.md).
 
 Words used: in quoted on-screen text, `␣` marks a space that must be kept (hint lines use three spaces around each `·`; meta lines join with `   ·   `). **must** = required; **should** = strong default. "OK" = the remote's centre button. ◀ ▶ ▲ ▼ = D-pad. "Hold OK" = press longer than 600 ms.
 
@@ -74,7 +74,9 @@ Later launches ──────────────► Loading (saved copy
 
 ### 5.2 Later loads (saved copy)
 - One step, "Opening your saved channels", with a percentage read from the saved file.
-- **Live channels load first and Home opens immediately.** Movies and series then load in the background. While they load, Movies, Series and Home's "Recently added" row show "Loading movies… Movies 40%".
+- **Live channels load first and Home opens immediately.** Movies and series load in the background. While they load, Movies, Series and Home's "Recently added" row show "Loading movies… Movies 40%".
+  - (2.9) Movies and series are read **at the same time as the channels**, not after Home opens, so they're ready about as soon as Home is. The saved files are read with a faster reader (same file format).
+  - The log records "Startup: Home in 3.2 s" and "Startup: movies and series in 4.1 s", timed from the start of loading.
 - If a fresh download finished meanwhile, the background load must not overwrite it.
 - After opening, the app checks for an app update, shows the Regions prompt if it's due, and runs the daily refresh if due.
 
@@ -181,8 +183,12 @@ Paused or behind live (§7.7):
 - A channel counts as **recently watched after 10 s**. The last channel is remembered.
 - **Channel switching (2.5)**: one stream at a time, always. The account allows **1 connection**, so neighbouring channels are never preloaded.
   - The info bar updates the moment ▲/▼ is pressed. The stream starts only once no channel key has been pressed for **300 ms**, so scrolling past channels opens no streams.
-  - The player starts after about 1 s of buffered video (2 s after a stall), over one kept-open connection.
+  - The player starts after about **0.5 s** of buffered video (2.9; was 1 s), and 2 s after a stall.
+  - (2.9) **The old stream is closed fully before the next one opens**: the player stops, and idle kept-open connections to the provider are closed, so the provider doesn't count the old channel as still watching.
   - Each switch's time, from key press to first picture, is logged, and Diagnostics shows the average of the last 10. The target is under 2 s.
+  - (2.9) **Honest timing**: a return to the channel already playing isn't timed (no stream opened). The time after the 300 ms settle wait is shown separately as "stream". A switch that needed a retry or the other format is logged as "Channel switch: 4.9 s (after a retry)" and kept out of the average.
+- **Live format** (2.9): links use the format from Settings → Playback → Live format (§14). Automatic uses what the provider reports at login.
+- **Too many connections** (2.9, HTTP 429/458/509): see §7.9.
 - **Playback fallback**: if a stream fails, try once with the other extension (`.m3u8` ↔ `.ts`). Skip this for login or connection-limit errors (HTTP 401, 403, 429, 458, 509), where it can't help. If it still fails, show the clear error message (§7.8) in the info bar.
 - **Audio & subtitles panel** (right side, 380 wide):
   - Audio tracks are listed if there is more than one. With one track: "English · Stereo (only track)".
@@ -203,20 +209,22 @@ Paused or behind live (§7.7):
 - **Resume**:
   - On a catch-up channel paused for more than 15 s, playback continues from the recording at the moment of the pause.
   - Otherwise playback simply continues. On a channel without catch-up, if the stream has moved on: go live with the toast "This channel can't pause that long — back to live".
+  - (2.9) On a channel without catch-up, the resume gets **4 s** to start playing (recordings keep 10 s). The provider drops paused connections after a few seconds, so waiting longer doesn't help. The toast shows the moment it goes live.
+  - (2.9) Each such resume is logged with the pause length: "Pause on 49383: 10 s, resume failed" / "… resume worked". The longest pause that worked is kept (`pause_nocatchup_max`) and shown in Diagnostics.
+  - Going live automatically just before the provider's limit is **not** done yet (decided 2.9: collect the log data first).
 - **Rewind / forward** (catch-up channels): a quick run of presses adds up and becomes one jump 0.6 s after the last press. It seeks inside the recording if possible, otherwise it re-opens the recording at the target minute. It can't go back past the channel's catch-up days. Moving to within 30 s of now goes live.
 - **Start of show** plays the recording from the current programme's start time. **Go live** returns to the live stream.
-- Channels without catch-up show the hint "Pause only · no rewind␣␣␣·␣␣␣OK Play / pause␣␣␣·␣␣␣▼ Buttons" and ◀/▶ do nothing.
+- Channels without catch-up show the hint "Pause · a few seconds only␣␣␣·␣␣␣OK Play / pause␣␣␣·␣␣␣▼ Buttons" (2.9; was "Pause only · no rewind") and ◀/▶ do nothing.
 - **Recording link formats** (2.5.1), tried in order with the remembered working one first:
   1. `.ts` path.
   2. `.m3u8` path (`hls`).
   3. `timeshift.php`.
   - If a recording errors, try the next format. After the last one, retry once more from the same moment, then go live with the clear error as a toast.
   - The format that reaches "ready" is remembered.
-- **Never just sit there** (2.5.1): if a recording, or a resumed live pause, isn't playing 10 s after starting, log "stalled" with the player state and try the next format.
+- **Never just sit there** (2.5.1): if a recording isn't playing 10 s after starting (a resumed live pause: 4 s, 2.9), log "stalled" with the player state and try the next format.
   - After the last format, go live with the toast "Couldn't play the recording (still buffering) — back to live", or "Couldn't resume (…) — back to live".
 - Pauses and resumes are logged ("Paused live on channel 4130 (catch-up)", "Resumed live … after 64 s", "Catch-up: timeshift .ts from 2 min ago …").
 - When a recording reaches its end, request the next part (or go live).
-- **Too many connections** (HTTP 429/458/509) on live or movies: wait 3 s and try once more (the provider may still be counting the stream that just closed), then show the clear message.
 - Changing channel or leaving drops the recording. Recordings don't create resume points or history entries.
 - **Recording link**: `{server}/timeshift/{user}/{pass}/{minutes}/{YYYY-MM-DD:HH-MM}/{stream_id}.ts`, or `{server}/streaming/timeshift.php?username=…&password=…&stream=…&start=…&duration=…` if Diagnostics' test found that format works.
   - The start time is in the **server's local time**: the offset is measured at login from `server_info.time_now` vs `timestamp_now` (rounded to 15 min), then from `server_info.timezone`, then this TV's zone.
@@ -227,7 +235,7 @@ Errors show the provider's actual code and what to do. The same wording is used 
 
 | Cause | Message |
 |---|---|
-| HTTP 509, 429, 458 | "Provider says too many connections (509): stop playback on another device" |
+| HTTP 509, 429, 458 | "Your plan allows one stream. Another device may be watching." (2.9: no code on screen; after the retries in §7.9) |
 | HTTP 401, 403 | "Provider refused access (403): check your subscription is active" |
 | HTTP 404, 410 | "Provider says this <thing> isn't available (404)" |
 | HTTP 5xx | "Provider's server had a problem (502): try again in a minute" |
@@ -238,6 +246,14 @@ Errors show the provider's actual code and what to do. The same wording is used 
 | Anything else | "This <thing> isn't playing right now (ERROR_CODE_…)" |
 
 - The log line carries the details, e.g. "Live playback failed on channel 101 CNN: HTTP 509 · ERROR_CODE_IO_BAD_HTTP_STATUS".
+
+### 7.9 Too many connections (2.9)
+The plan allows **one stream**. HTTP 429, 458 or 509 means the provider is still counting another stream: either the previous channel (it holds the slot for a few seconds), or another device.
+- **Retry three times, waiting 3 s, 6 s, then 10 s.** Each retry first closes idle provider connections. While waiting, the info bar (live) or the centre box (movies) shows "Waiting for the provider · try 2 of 3".
+- Changing channel or leaving cancels the retries. Movies and episodes retry from the same position.
+- **After the last try**: "Your plan allows one stream. Another device may be watching. Press OK to try again." **OK** tries again; **Back** leaves. The raw HTTP code is never on screen; it stays in the log.
+- Log lines: "Channel 4146: too many connections (HTTP 458 · ERROR_CODE_IO_BAD_HTTP_STATUS), try 2 of 3 in 6 s", then "Channel 4146: played after 3 tries" on success, so the log shows how long the provider holds the slot.
+- Diagnostics: "Connection limit: 2 hits today (last 12:53)".
 
 ## 8. TV Guide
 
@@ -361,7 +377,7 @@ The player screen always holds focus and handles every key itself. The stock Exo
   - Under 30 s it isn't saved.
   - Past 95%, or with under 60 s left, the resume point is cleared (counted as finished).
 - When a title ends: mark it finished, then play the next item in the queue, or leave if there is none.
-- On a playback error, show the clear message (§7.8) and "Press Back to return."
+- On a playback error, show the clear message (§7.8) and "Press Back to return." Too many connections retries first (§7.9).
 - Opening a movie adds it to Recently watched. Opening an episode records it as the series' last episode and adds the series to Recently watched.
 - **Audio & subtitles panel**: as in live, but the note reads "Used for all movies & series.␣␣Back to close." (two spaces) and the empty text is "This title has no subtitles."
   - Choices are saved as **one general setting for all movies and series** (`vod_audio_lang`, `vod_text_lang`), applied **once per title** when its tracks first load.
@@ -392,6 +408,7 @@ The player screen always holds focus and handles every key itself. The stock Exo
   - **PLAYBACK**
     - **Subtitle style** · the current style, e.g. "Medium · White · Drop shadow · Semi-transparent box". Opens §14.1.
     - **Sleep timer default** · "90 min". ◀ ▶ change it (30 / 60 / 90); OK steps 30 → 60 → 90 → 30. Stored as `sleep_default`.
+    - **Live format** (2.9) · "Automatic (m3u8)", "ts" or "m3u8". ◀ ▶ change it; OK steps Automatic → ts → m3u8 → Automatic. Stored as `live_format_choice`. Takes effect on the next channel, without restarting. Automatic uses the provider's format (`live_format`).
   - **LIBRARY**
     - **My regions** · the chosen region labels, or "All regions".
     - **Update playlist now** · "Updated 3 h ago" ("Updating…" while running). The playlist still updates automatically once a day.
@@ -400,7 +417,7 @@ The player screen always holds focus and handles every key itself. The stock Exo
   - **ACCOUNT**
     - **Change login** · the playlist name. Scan a QR code and enter a new login on the phone.
   - **APP**
-    - **Version** · "2.8 (build N)". OK checks for updates ("Checking for updates…", then "You have the latest version" or "Update available — open Settings to install").
+    - **Version** · "2.9 (build N)". OK checks for updates ("Checking for updates…", then "You have the latest version" or "Update available — open Settings to install").
     - **Back up settings** · "To your phone" (2.7). Opens §14.3.
     - **Restore settings** · "From a backup file" (2.7). Opens §14.3.
     - **Diagnostics**.
@@ -468,6 +485,7 @@ The player screen always holds focus and handles every key itself. The stock Exo
   - If "install unknown apps" isn't allowed, open that system screen with the toast "Allow Sparky IPTV to install updates, then press Back".
   - Otherwise, download to `cache/updates/sparky-iptv.apk` and launch Android's installer through a FileProvider.
   - Extra presses are ignored while downloading and for **10 s** after the installer opens (2.5; fixes a second download).
+  - (2.9) If `cache/updates/sparky-iptv.apk` is already the offered build (its SHA-256 matches), it isn't downloaded again: the installer opens at once and the log says "Update build 22 already downloaded; opening the installer".
 - A manual check shows "Checking for updates…", then "You have the latest version" or the update toast.
 
 ## 16. Diagnostics
@@ -475,12 +493,19 @@ The player screen always holds focus and handles every key itself. The stock Exo
 - Left side: the title; "Scan to open the full log on your phone, then copy it and send it to Claude."; a QR code (the log server on ports 8091–8099, only while the page is open; the key expires after 10 minutes without use and a new QR code appears, 2.8); the URL; and a header:
   - The version ("Sparky IPTV 2.5 (build 15)"; the build appears once, fixed in 2.5), the device, memory used/max, and library counts.
   - **Catch-up**: "N channels · up to N days", or "not offered by your provider", or "checking at the next playlist update".
-  - "Channel switch: average 1.4 s (last 10)", once channels have been switched.
+  - "Channel switch: average 2.4 s (last 10) · stream 2.1 s", once channels have been switched (2.9 adds the stream part).
+  - The live format test result, once run (2.9).
+  - "Connection limit: no hits today", or "2 hits today (last 12:53)" (2.9).
+  - "Pause without catch-up: longest that worked 3 s", or "no resumes yet" (2.9).
   - The catch-up test result, once run.
-  - Playlist type and live format.
+  - Playlist type and live format, with "(automatic)" or "(chosen)" (2.9).
+  - "Log file: 84 KB · 1,120 lines" (2.9).
   - "Stream: none", or "open (playing / paused / buffering)" (2.6), so you can check that no stream is open after the sleep timer.
   - "Sleep timer: off", or "Sleep timer: 90 min · 42 min left" (2.6).
-- Buttons: **Test catch-up** (2.5), then Refresh and Clear crash (only if there is one).
+- Buttons: **Test catch-up** (2.5) and **Test live formats** (2.9), then Refresh and Clear crash (only if there is one).
+  - Test live formats plays one channel (the last watched, else the first favourite channel, else the first channel) **3 times as m3u8 and 3 times as ts**, alternating, one stream at a time, and times each from opening the link to the player being ready. It reports "Live formats: m3u8 average 2.7 s · ts average 1.9 s".
+  - If ts is **clearly faster** (at least 0.2 s on average, from at least 2 working tries), Live format is set to **ts** and the result adds "Live format set to ts" (Ashwin's choice, 2.9). Otherwise the setting is left alone.
+  - The button shows "Testing… 3 of 6" while it runs.
   - Test catch-up asks the provider for a recording from about an hour ago on up to 3 catch-up channels (favourites first), trying **all three link formats** on each (2.5.1).
   - "Video" means any of: MPEG-TS packets (sync byte 0x47 every 188 or 192 bytes, starting anywhere in the first 2,000 bytes), `#EXTM3U` (HLS), or `ftyp` at byte 4 (MP4).
   - For each format, the log records the HTTP code, content type, size and first 16 bytes in hex.
@@ -488,7 +513,9 @@ The player screen always holds focus and handles every key itself. The stock Exo
   - The preferred format is HLS, then .ts, then php.
 - Right side: "Last crash" (if any, in red) and the **last 200 log lines, newest first**. Errors are accent, warnings amber. The lines are focusable so the remote can scroll them.
 - The phone page has a **Copy everything** button. On plain http it falls back to a hidden text box and the copy command; if that fails it selects all the text ("Text selected: tap Copy"). There is also a **Select all** button (2.5.1; before that Copy did nothing on phones).
-- The log is kept in memory and in a file (400 lines, trimmed past 256 KB). Crashes are written to `last_crash.txt` by an uncaught-exception handler. **The password and username are replaced with •••** in every log line.
+- The log is kept in memory and in a file. Memory keeps the newest 400 lines. The file is checked at start **and every 100 lines while running** (2.9); past 256 KB it keeps the newest 200 lines. Diagnostics and the phone page read **only the last 64 KB** of the file (2.9).
+  - (2.9) A date line is written at start and when the day changes: "— Sun 1 Nov 2026 —". Times stay HH:mm:ss.
+  - (2.9) A message repeated more than 20 times in a minute is written 20 times; the next line after that minute adds "(repeated 57 more times in the last minute) <message>". Crashes are written to `last_crash.txt` by an uncaught-exception handler. **The password and username are replaced with •••** in every log line.
 - **Cancelled loads are not logged as errors** (2.5): coroutine cancellations and cancelled network calls (for example, a detail page closed before its data arrived) are dropped from the log.
 - The first daily refresh logs "Daily refresh: first update" (before 2.5 it printed the hours since 1970).
 

@@ -105,7 +105,13 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
     var shiftRetried by remember { mutableStateOf(false) }
     var fmtIdx by remember { mutableIntStateOf(0) }                 // which recording link format is in use
     var watchTick by remember { mutableIntStateOf(0) }              // starts the "is it playing?" check
-    var connRetried by remember { mutableStateOf(false) }
+    // Connection limit (2.9): retries 1–3 after 3 s, 6 s, 10 s, then a message; OK tries again.
+    var connTry by remember { mutableIntStateOf(0) }
+    var connWaiting by remember { mutableStateOf(false) }
+    var connBlocked by remember { mutableStateOf(false) }
+    // Pause without catch-up (2.9): how long the last pause was, and whether its resume is being checked.
+    var lastPauseSecs by remember { mutableLongStateOf(0L) }
+    var resumePending by remember { mutableStateOf(false) }
     var barVisible by remember { mutableStateOf(false) }
     var onButtons by remember { mutableStateOf(false) }
     var button by remember { mutableIntStateOf(0) }
@@ -115,6 +121,8 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
     var clockTick by remember { mutableLongStateOf(System.currentTimeMillis()) }
     // Channel switch timing.
     var switchStartedAt by remember { mutableLongStateOf(0L) }
+    var streamStartedAt by remember { mutableLongStateOf(0L) }   // after the 300 ms settle wait
+    var switchRetried by remember { mutableStateOf(false) }      // retried or changed format: not timed
     var firstPlay by remember { mutableStateOf(true) }
 
     val ch = channels[index]
@@ -181,8 +189,10 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
             else -> {
                 paused = false
                 resumedLiveAt = wallNow()
+                lastPauseSecs = (wallNow() - pausedAt) / 1000
+                resumePending = !canShift
                 player.playWhenReady = true
-                com.sparky.iptv.data.AppLog.i("Resumed live on channel ${ch.num} after ${(wallNow() - pausedAt) / 1000} s")
+                com.sparky.iptv.data.AppLog.i("Resumed live on channel ${ch.num} after $lastPauseSecs s")
                 watchTick++
             }
         }
@@ -235,14 +245,30 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
         error = null
         triedFallback = false
         shiftRetried = false
-        connRetried = false
+        connTry = 0
+        connWaiting = false
+        connBlocked = false
+        switchRetried = false
+        resumePending = false
         vm.ensureEpg(ch)
         showInfo = true
         infoTick++
         if (!firstPlay) delay(300)
         firstPlay = false
-        PlayerHolder.play(ctx, ch.url)
+        streamStartedAt = android.os.SystemClock.elapsedRealtime()
+        // Same channel still playing (for example back to the preview's channel): nothing to time.
+        if (!PlayerHolder.play(ctx, ch.url)) switchStartedAt = 0L
         vm.prefs.lastChannel = ch.id
+    }
+    // Connection limit: wait, then try the channel again. Leaving the channel cancels this.
+    LaunchedEffect(ch.id, connTry, connWaiting) {
+        if (!connWaiting) return@LaunchedEffect
+        delay(PlaybackErrors.CONNECTION_RETRY_MS[(connTry - 1).coerceIn(0, 2)])
+        connWaiting = false
+        if (shiftStart == null) {
+            PlayerHolder.closeIdleConnections()
+            PlayerHolder.play(ctx, ch.url, force = true)
+        }
     }
     LaunchedEffect(ch.id) {
         delay(10_000)
@@ -250,7 +276,8 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
     }
     LaunchedEffect(infoTick) {
         delay(5000)
-        showInfo = false
+        // Keep the "waiting for the provider" and "one stream" messages on screen.
+        if (!connWaiting && !connBlocked) showInfo = false
     }
     // The control bar hides after 5 s while playing; it stays while paused.
     LaunchedEffect(barTick, barVisible, panelOpen, sleepOpen, paused) {
@@ -268,12 +295,21 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
         if (s != null && t >= s && player.isCurrentMediaItemSeekable) player.seekTo(t - s) else startShift(t)
         seekTarget = null
     }
-    // Never just sit there: if a recording or a resumed pause isn't playing within 10 s,
-    // try the next recording link format, then go live with a message.
+    // Never just sit there: if a recording isn't playing within 10 s, try the next recording link
+    // format, then go live with a message. A resumed live pause gets 4 s (2.9): the provider drops
+    // paused connections, so waiting longer doesn't help.
     LaunchedEffect(watchTick) {
         if (watchTick == 0) return@LaunchedEffect
-        delay(10_000)
-        if (paused || player.isPlaying) return@LaunchedEffect
+        val wait = if (shiftStart != null) 10_000L else 4_000L
+        delay(wait)
+        if (paused) return@LaunchedEffect
+        if (player.isPlaying) {
+            if (shiftStart == null && resumePending) {
+                resumePending = false
+                vm.notePauseResume(ch.num, lastPauseSecs, worked = true)
+            }
+            return@LaunchedEffect
+        }
         val state = when (player.playbackState) {
             Player.STATE_BUFFERING -> "still buffering"
             Player.STATE_IDLE -> "idle"
@@ -287,9 +323,10 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
             if (fmtIdx < formats.lastIndex) startShift(watchedTime().coerceAtLeast(s), fmtIdx + 1)
             else { goLive(); vm.toast = "Couldn't play the recording ($state) — back to live" }
         } else {
-            com.sparky.iptv.data.AppLog.w("Live resume stalled on channel ${ch.num}: $state after 10 s; going live")
+            com.sparky.iptv.data.AppLog.w("Live resume stalled on channel ${ch.num}: $state after ${wait / 1000} s; going live")
+            if (resumePending) { resumePending = false; vm.notePauseResume(ch.num, lastPauseSecs, worked = false) }
             goLive()
-            vm.toast = "Couldn't resume ($state) — back to live"
+            vm.toast = if (!canShift) "This channel can't pause that long — back to live" else "Couldn't resume ($state) — back to live"
         }
     }
     // Keep the times on screen current while behind live.
@@ -323,23 +360,35 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
                 // Resuming a long live pause on a channel without catch-up.
                 if (wallNow() - resumedLiveAt < 10_000 || e.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
                     resumedLiveAt = 0L
+                    if (resumePending) { resumePending = false; vm.notePauseResume(ch.num, lastPauseSecs, worked = false) }
                     goLive()
                     vm.toast = "This channel can't pause that long — back to live"
                     return
                 }
-                // The provider may still be counting the stream we just closed: wait 3 s and try once more.
-                if (PlaybackErrors.httpCode(e) in setOf(429, 458, 509) && !connRetried) {
-                    connRetried = true
-                    com.sparky.iptv.data.AppLog.w("Channel ${ch.num}: provider says too many connections ($detail); retrying in 3 s")
-                    val url = ch.url
-                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                        if (channels.getOrNull(index)?.url == url && shiftStart == null) PlayerHolder.play(ctx, url, force = true)
-                    }, 3000)
+                // Too many connections: the provider may still be counting the stream we just closed,
+                // or another device is watching. Try 3 more times (3 s, 6 s, 10 s), then explain (2.9).
+                if (PlaybackErrors.isConnectionLimit(e)) {
+                    vm.noteConnLimit()
+                    switchRetried = true
+                    if (connTry < 3) {
+                        connTry++
+                        val wait = PlaybackErrors.CONNECTION_RETRY_MS[connTry - 1]
+                        com.sparky.iptv.data.AppLog.w("Channel ${ch.num}: too many connections ($detail), try $connTry of 3 in ${wait / 1000} s")
+                        error = "Waiting for the provider · try $connTry of 3"
+                        connWaiting = true
+                    } else {
+                        com.sparky.iptv.data.AppLog.e("Live playback failed on channel ${ch.num} ${ch.name}: $detail after 3 tries")
+                        error = PlaybackErrors.CONNECTION_LIMIT_MESSAGE
+                        connBlocked = true
+                    }
+                    showInfo = true
+                    infoTick++
                     return
                 }
                 // Some providers only serve one of HLS / MPEG-TS; try the other once (not for login or connection limits).
                 if (!triedFallback && !PlaybackErrors.isAccountProblem(e)) {
                     triedFallback = true
+                    switchRetried = true
                     val alt = when {
                         ch.url.endsWith(".m3u8") -> ch.url.removeSuffix(".m3u8") + ".ts"
                         ch.url.endsWith(".ts") -> ch.url.removeSuffix(".ts") + ".m3u8"
@@ -358,6 +407,11 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {
                     error = null
+                    if (connTry > 0 && shiftStart == null) {
+                        com.sparky.iptv.data.AppLog.i("Channel ${ch.num}: played after ${connTry + 1} tries")
+                        connTry = 0
+                    }
+                    connBlocked = false
                     if (shiftStart != null) {
                         val fmt = com.sparky.iptv.data.StreamUrls.catchupFormats()[fmtIdx]
                         if (fmt != com.sparky.iptv.data.StreamUrls.catchupFormat) {
@@ -376,7 +430,10 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
             }
             override fun onRenderedFirstFrame() {
                 if (switchStartedAt > 0) {
-                    vm.recordSwitch(android.os.SystemClock.elapsedRealtime() - switchStartedAt)
+                    val t = android.os.SystemClock.elapsedRealtime()
+                    // Switches that needed a retry are logged but kept out of the average (2.9).
+                    if (switchRetried) com.sparky.iptv.data.AppLog.i("Channel switch: %.1f s (after a retry)".format((t - switchStartedAt) / 1000.0))
+                    else vm.recordSwitch(t - switchStartedAt, t - streamStartedAt.coerceAtLeast(switchStartedAt))
                     switchStartedAt = 0L
                 }
             }
@@ -463,6 +520,16 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
                             val held = ne.eventTime - ne.downTime
                             when {
                                 held > 600 -> vm.holdFavoriteNow(ch.favKey, ch.display)   // hold OK = favourite (menu if it is one)
+                                connBlocked && !behind -> {                               // "Press OK to try again" (2.9)
+                                    connBlocked = false
+                                    connTry = 0
+                                    error = null
+                                    com.sparky.iptv.data.AppLog.i("Channel ${ch.num}: trying again after the connection limit")
+                                    PlayerHolder.closeIdleConnections()
+                                    PlayerHolder.play(ctx, ch.url, force = true)
+                                    showInfo = true
+                                    infoTick++
+                                }
                                 behind && barVisible && onButtons -> { buttons.getOrNull(button)?.let { press(it) }; showBar() }
                                 else -> { togglePause(); showBar(false) }                // OK = pause / play
                             }
@@ -521,7 +588,7 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
                 hint = when {
                     onButtons -> "◀ ▶ Choose   ·   OK Select   ·   ▲ Timeline"
                     canShift -> "◀ ▶ Rewind / forward   ·   OK Play / pause   ·   ▼ Buttons"
-                    else -> "Pause only · no rewind   ·   OK Play / pause   ·   ▼ Buttons"
+                    else -> "Pause · a few seconds only   ·   OK Play / pause   ·   ▼ Buttons"
                 },
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
@@ -810,7 +877,11 @@ private fun VodPlayer(vm: AppViewModel, req: PlayRequest.Vod) {
     var seekTarget by remember { mutableStateOf<Long?>(null) }
     var seekTick by remember { mutableIntStateOf(0) }
     var appliedFor by remember { mutableStateOf<String?>(null) }
-    var connRetried by remember { mutableStateOf(false) }
+    // Connection limit (2.9): retries 1–3 after 3 s, 6 s, 10 s, then a message; OK tries again.
+    var connTry by remember { mutableIntStateOf(0) }
+    var connWaiting by remember { mutableStateOf(false) }
+    var connBlocked by remember { mutableStateOf(false) }
+    var connPos by remember { mutableLongStateOf(0L) }
     val focus = remember { FocusRequester() }
 
     val buttons = remember(hasNext) { VodButton.entries.filter { it != VodButton.NEXT || hasNext } }
@@ -867,7 +938,9 @@ private fun VodPlayer(vm: AppViewModel, req: PlayRequest.Vod) {
     LaunchedEffect(item.key) {
         error = null
         appliedFor = null
-        connRetried = false
+        connTry = 0
+        connWaiting = false
+        connBlocked = false
         val start = if (idx == req.index) req.resumeMs else (vm.progress(item.key)?.pos ?: 0L)
         PlayerHolder.play(ctx, item.url, startMs = start, force = true)
         playing = true
@@ -877,6 +950,14 @@ private fun VodPlayer(vm: AppViewModel, req: PlayRequest.Vod) {
             delay(10_000)
             save()
         }
+    }
+    // Connection limit: wait, then try again from the same position. Leaving the title cancels this.
+    LaunchedEffect(item.key, connTry, connWaiting) {
+        if (!connWaiting) return@LaunchedEffect
+        delay(PlaybackErrors.CONNECTION_RETRY_MS[(connTry - 1).coerceIn(0, 2)])
+        connWaiting = false
+        PlayerHolder.closeIdleConnections()
+        PlayerHolder.play(ctx, item.url, startMs = connPos, force = true)
     }
     // Hide the bar after 5 s without a key press (it stays while paused).
     LaunchedEffect(barTick, barVisible, panelOpen, sleepOpen, playing) {
@@ -907,7 +988,13 @@ private fun VodPlayer(vm: AppViewModel, req: PlayRequest.Vod) {
     DisposableEffect(item.key) {
         val l = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_READY) duration = PlayerHolder.duration()
+                if (state == Player.STATE_READY) {
+                    duration = PlayerHolder.duration()
+                    if (connTry > 0) com.sparky.iptv.data.AppLog.i("${item.title}: played after ${connTry + 1} tries")
+                    connTry = 0
+                    connBlocked = false
+                    error = null
+                }
                 if (state == Player.STATE_ENDED) {
                     if (item.saveProgress) vm.saveProgress(item.key, PlayerHolder.duration(), PlayerHolder.duration())
                     if (idx < req.items.lastIndex) idx++ else {
@@ -920,14 +1007,21 @@ private fun VodPlayer(vm: AppViewModel, req: PlayRequest.Vod) {
                 playing = player.playWhenReady
             }
             override fun onPlayerError(e: PlaybackException) {
-                // The provider may still be counting the stream we just closed: wait 3 s and try once more.
-                if (PlaybackErrors.httpCode(e) in setOf(429, 458, 509) && !connRetried) {
-                    connRetried = true
-                    val pos = PlayerHolder.currentPosition()
-                    com.sparky.iptv.data.AppLog.w("${item.title}: provider says too many connections (${PlaybackErrors.logDetail(e)}); retrying in 3 s")
-                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                        if (req.items.getOrNull(idx)?.key == item.key) PlayerHolder.play(ctx, item.url, startMs = pos, force = true)
-                    }, 3000)
+                // Too many connections: try 3 more times (3 s, 6 s, 10 s), then explain (2.9).
+                if (PlaybackErrors.isConnectionLimit(e)) {
+                    vm.noteConnLimit()
+                    if (connTry == 0) connPos = PlayerHolder.currentPosition()
+                    if (connTry < 3) {
+                        connTry++
+                        val wait = PlaybackErrors.CONNECTION_RETRY_MS[connTry - 1]
+                        com.sparky.iptv.data.AppLog.w("${item.title}: too many connections (${PlaybackErrors.logDetail(e)}), try $connTry of 3 in ${wait / 1000} s")
+                        error = "Waiting for the provider · try $connTry of 3"
+                        connWaiting = true
+                    } else {
+                        com.sparky.iptv.data.AppLog.e("Playback failed for ${item.title}: ${PlaybackErrors.logDetail(e)} after 3 tries")
+                        error = PlaybackErrors.CONNECTION_LIMIT_MESSAGE
+                        connBlocked = true
+                    }
                     return
                 }
                 com.sparky.iptv.data.AppLog.e("Playback failed for ${item.title}: ${PlaybackErrors.logDetail(e)}")
@@ -967,6 +1061,15 @@ private fun VodPlayer(vm: AppViewModel, req: PlayRequest.Vod) {
                 when (ne.keyCode) {
                     AKey.KEYCODE_DPAD_CENTER, AKey.KEYCODE_ENTER, AKey.KEYCODE_NUMPAD_ENTER -> {
                         if (ne.repeatCount > 0) return@onPreviewKeyEvent true
+                        if (connBlocked) {
+                            // "Press OK to try again" (2.9).
+                            connBlocked = false
+                            connTry = 0
+                            error = null
+                            PlayerHolder.closeIdleConnections()
+                            PlayerHolder.play(ctx, item.url, startMs = connPos, force = true)
+                            return@onPreviewKeyEvent true
+                        }
                         if (barVisible && onButtons) buttons.getOrNull(button)?.let { press(it) } else togglePlay()
                         showBar()
                         true
@@ -1052,7 +1155,7 @@ private fun VodPlayer(vm: AppViewModel, req: PlayRequest.Vod) {
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.u)) {
                     T(it, size = 17, weight = FontWeight.SemiBold)
-                    T("Press Back to return.", size = 14, color = C.Muted)
+                    if (!connWaiting && !connBlocked) T("Press Back to return.", size = 14, color = C.Muted)
                 }
             }
         }

@@ -18,6 +18,8 @@ import com.sparky.iptv.data.USER_AGENT
 
 /** One shared player, used by both the live preview and the full-screen player. */
 object PlayerHolder {
+    /** Video buffered before playback starts (2.9: 0.5 s, was 1 s). Rebuffering still waits for 2 s. */
+    const val START_BUFFER_MS = 500
     private var player: ExoPlayer? = null
     private var currentUrl: String? = null
     private var client: OkHttpClient? = null
@@ -43,12 +45,12 @@ object PlayerHolder {
             .build()
         this.client = client
         val http = OkHttpDataSource.Factory(client).setUserAgent(USER_AGENT)
-        // Start playing after about 1 s of video (default 2.5 s); 2 s after a stall.
+        // Start playing after about 0.5 s of video (2.9; was 1 s, default 2.5 s); 2 s after a stall.
         val load = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
                 DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
                 DefaultLoadControl.DEFAULT_MAX_BUFFER_MS,
-                1_000,
+                START_BUFFER_MS,
                 2_000,
             )
             .build()
@@ -61,12 +63,22 @@ object PlayerHolder {
         return p
     }
 
-    fun play(ctx: Context, url: String, startMs: Long = 0L, force: Boolean = false) {
-        if (held) return
+    /**
+     * Plays [url]. Returns true if a new stream was opened, false if [url] was already playing
+     * (so a channel switch back to the same channel isn't timed, 2.9).
+     */
+    fun play(ctx: Context, url: String, startMs: Long = 0L, force: Boolean = false): Boolean {
+        if (held) return false
         val p = get(ctx)
         if (!force && url == currentUrl && p.playbackState != androidx.media3.common.Player.STATE_IDLE) {
             p.playWhenReady = true
-            return
+            return false
+        }
+        // 2.9: close the previous stream fully before opening the next one. The plan allows one
+        // connection, and an idle kept-alive socket can still count as the old stream (HTTP 458).
+        if (currentUrl != null) {
+            p.stop()
+            closeIdleConnections()
         }
         currentUrl = url
         TrackHelper.reset(p)
@@ -77,6 +89,12 @@ object PlayerHolder {
         if (startMs > 0) p.setMediaItem(item, startMs) else p.setMediaItem(item)
         p.prepare()
         p.playWhenReady = true
+        return true
+    }
+
+    /** Closes kept-alive provider connections that no stream is using. */
+    fun closeIdleConnections() {
+        runCatching { com.sparky.iptv.data.Http.base.connectionPool.evictAll() }
     }
 
     fun stop() {

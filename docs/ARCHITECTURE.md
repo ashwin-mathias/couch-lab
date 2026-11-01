@@ -64,7 +64,9 @@ data/
 player/
   PlayerHolder.kt        ONE shared ExoPlayer for previews and full screen
   TrackHelper.kt         list/select audio and subtitle tracks, reset, re-apply remembered language
-  PlaybackErrors.kt      HTTP code from a player error → clear message (SPEC §7.8), log detail, account-problem check
+  PlaybackErrors.kt      HTTP code from a player error → clear message (SPEC §7.8), log detail, account-problem check;
+                         (2.9) CONNECTION_LIMIT codes, message and retry waits
+  FormatTest.kt          (2.9) Diagnostics → Test live formats
   SubtitleStyle.kt       SubStyle (options, encode/decode, apply to a SubtitleView) + SubtitleStyleState (shared Compose state)
 setup/
   SetupServer.kt         setup pages (login form, restore) on a PhoneServer (8080–8090); Net.localIp; Qr.bitmap
@@ -131,6 +133,8 @@ res/     drawable/*.xml icons, drawable-nodpi/{logo,avatar}.webp + sparky.jpg, d
 
 ### 4.3 Snapshot format (`filesDir/snap_{live,movies,series}.bin`)
 - `DataOutputStream`, buffered at 256 KB, written to `.tmp` and then renamed (atomic).
+- Read (2.9) with `Snapshot.FastIn`: one unsynchronized 256 KB buffer that decodes big-endian ints/longs and builds strings straight from the buffer (`DataInputStream` over `BufferedInputStream` paid a synchronized `read()` per byte). Same file format; checked against `DataOutputStream` output with 200,000 records.
+- (2.9) At start, `snap_movies` and `snap_series` are read on an IO thread **at the same time** as `snap_live`; Home opens after live as before.
 - Header: `int MAGIC = 0x5350524B ("SPRK")`, `int VERSION = 2`. Readers accept versions 1..2.
 - A string is `int len` (−1 = null) followed by UTF-8 bytes.
 - Body: categories (`int n`, then id and name), then items:
@@ -185,7 +189,9 @@ res/     drawable/*.xml icons, drawable-nodpi/{logo,avatar}.webp + sparky.jpg, d
 | `playlist` | Old plain copy of the same JSON. Upgraded to `playlist_enc` on first read; written only if the Keystore is unavailable (logged) |
 | `account` | JSON `{status,expires,max,format,tz,off}` (`tz` and `off` = server time zone and UTC offset in minutes; since 2.5) |
 | `catchup_format` | `path` (.ts), `hls` (.m3u8) or `php`: the recording link format that last worked (from the test or from playback; default `path`) |
-| `live_format` | `m3u8` or `ts` |
+| `live_format` | `m3u8` or `ts`: the provider's format, from login |
+| `live_format_choice` | (2.9) `auto` (default), `ts` or `m3u8`: Settings → Live format. Links use `Prefs.effectiveLiveFormat` = the choice, or `live_format` when `auto` |
+| `pause_nocatchup_max` | (2.9) int seconds: the longest live pause that resumed on a channel without catch-up (Diagnostics) |
 | `favorites` | string set of `live:/movie:/series:` keys |
 | `pos:<movie:id|episode:id>` | `"pos,dur,ts"` |
 | `slast:<seriesId>` | last episode id |
@@ -212,7 +218,7 @@ res/     drawable/*.xml icons, drawable-nodpi/{logo,avatar}.webp + sparky.jpg, d
   "device": "TCL Google TV", "encrypted": true, "data": <object, or Base64 when encrypted> }
 data: login {type,name,url,user,pass}              (only when Login is ticked; then the file is encrypted)
       favorites [{key,name}], fav_order, fav_folders, my_regions, regions_closed
-      playback {sub_style, sleep_default, vod_audio_lang, vod_text_lang, live_format, catchup_format},
+      playback {sub_style, sleep_default, vod_audio_lang, vod_text_lang, live_format, live_format_choice (2.9), catchup_format},
       tracks {trk:…}, trk_order, tiles {tiles:…}
       history {pos {pos:…}, slast {slast:…}, recents "<json>"}
 ```
@@ -228,16 +234,19 @@ Files in `filesDir`: `snap_*.bin`, `cache_m3u.json`, `app_log.txt`, `last_crash.
 
 - `PlayerHolder`: a **single ExoPlayer** created on first use (2.5):
   - `OkHttpDataSource` over **one shared OkHttpClient** (our UA, redirects, connect 15 s, read 20 s), so the connection stays open between channel switches.
-  - `DefaultLoadControl` with `bufferForPlaybackMs = 1000` and `bufferForPlaybackAfterRebuffer = 2000` (the defaults are 2500 and 5000); min and max buffer stay at the defaults.
+  - `DefaultLoadControl` with `bufferForPlaybackMs = 500` (2.9, `START_BUFFER_MS`; was 1000) and `bufferForPlaybackAfterRebuffer = 2000` (the defaults are 2500 and 5000); min and max buffer stay at the defaults. The player is shared, so movies also start after 0.5 s; a stall still waits for 2 s.
   - `DefaultMediaSourceFactory`.
 - **Never more than one stream.** The account allows 1 connection; preview, full screen and catch-up all reuse the single player.
 - **Live player state (2.5)**: `shiftStart` (the recording's start, or null for live), `paused`, `pausedAt`, plus a virtual-focus control bar.
   - `StreamUrls.catchup(id, startMs, minutes)` builds recording links in the server's local time.
   - A sub-minute start is applied by `seekTo` once ready, if the stream is seekable.
   - Seeks are debounced by 600 ms, then either `seekTo` inside the recording or a new recording link.
-  - The stream starts 300 ms after the last channel key press. `onRenderedFirstFrame` is used to time switches (`vm.recordSwitch`).
+  - The stream starts 300 ms after the last channel key press. `onRenderedFirstFrame` is used to time switches: `vm.recordSwitch(total, stream)`, where stream starts after the settle wait (2.9). Switches with a connection retry or format fallback (`switchRetried`) are logged but not averaged.
+  - **Connection limit (2.9)**: `connTry` (0–3), `connWaiting`, `connBlocked`. On 429/458/509, `vm.noteConnLimit()`; if `connTry < 3`, increment and a `LaunchedEffect(ch.id, connTry, connWaiting)` waits `PlaybackErrors.CONNECTION_RETRY_MS` (3 / 6 / 10 s), closes idle connections and replays with `force`. Keying on the channel cancels it when you leave. After 3, `connBlocked` shows `CONNECTION_LIMIT_MESSAGE` and OK retries. `VodPlayer` does the same keyed on `item.key`, from `connPos`.
+  - **Pause without catch-up (2.9)**: the watchdog after a resumed live pause waits 4 s (recordings 10 s). `resumePending` + `lastPauseSecs` feed `vm.notePauseResume` (log line and `pause_nocatchup_max`).
+  - `player/FormatTest.kt` (2.9): Diagnostics → Test live formats. Alternates `.m3u8` / `.ts` links of one channel 3 times each through `PlayerHolder`, timing `play` → `STATE_READY` (no surface on that page, so first frame can't be used), 15 s timeout, one wait-and-retry on a connection limit, 1.5 s gap with idle connections closed between tries.
 - `VodItem.saveProgress = false` marks recordings played from the guide; they don't store resume points.
-  - `play(url, startMs, force)`: if the URL is unchanged and the player isn't idle, just resume. Otherwise call `TrackHelper.reset` (clear overrides, subtitles off), set the item (MIME `APPLICATION_M3U8` for `.m3u8`), prepare and play.
+  - `play(url, startMs, force)` returns true if it opened a new stream (2.9). If the URL is unchanged and the player isn't idle, just resume and return false (the switch isn't timed). Otherwise, if a stream was open, `stop()` it and `closeIdleConnections()` (`Http.base.connectionPool.evictAll()`, 2.9: an idle kept-alive socket could still count as the old stream, HTTP 458), then call `TrackHelper.reset` (clear overrides, subtitles off), set the item (MIME `APPLICATION_M3U8` for `.m3u8`), prepare and play.
   - `stop` clears items; `pause`/`resume`; `currentPosition`; `duration` (0 if unknown).
   - `release` (2.6, sleep timer): stops and releases the ExoPlayer, evicts the OkHttp connection pool so the provider connection closes, and bumps `generation`. The next `get` builds a fresh player.
   - `held` (2.6): while true, `play` does nothing, so previews don't restart after the sleep timer. Cleared by any key.
@@ -279,10 +288,11 @@ Lists that mix focusable rows with non-focusable headings (guide grid, Live TV c
 - `AppLog.setSecrets(pass, user)` is called before any network call. Every line passes through `redact`, which replaces each secret with `•••`.
 - `AppLog.e(msg, t)` drops cancellations: `CancellationException`, `InterruptedIOException` (but not `SocketTimeoutException`), or an `IOException` "canceled" / "socket closed", anywhere in the cause chain. The same check guards warnings for background guide loads.
 - `about.json` (2.5): `name`, `role`, `dog`, `venmo`, `venmoHandle`, `zelle`. The QR codes are generated at runtime with `Qr.bitmap`. LinkedIn was removed.
+- **Log size (2.9)**: 400 lines in memory; the file `app_log.txt` is checked at start and every 100 lines written (`CHECK_EVERY`), and past 256 KB (`MAX_FILE_BYTES`) rewritten to its newest 200 lines; `text()` and the trim read only the last 64 KB (`TAIL_BYTES`, `RandomAccessFile`) and drop the first partial line; a message (same level and text) repeated more than 20 times in a minute (`MAX_REPEATS`) is skipped, with one "(repeated N more times in the last minute)" line when the minute ends; a date line "— Sun 1 Nov 2026 —" at start and when the day changes; `fileSummary()` for Diagnostics. All under the `AppLog` lock.
 - The crash handler writes `"time · version · thread\n" + redacted stack` and then calls the previous handler.
 
 - **Phone pages** (2.5.2): `SetupServer` and `LogServer` (NanoHTTPD) each get a `SecretBox.newToken()` and compare the `k` query parameter in constant time on every request. The token is only in the QR code.
-- **Updates** (2.5.2): `Updater` trusts only `https://github.com/ashwin-mathias/couch-lab/releases/download/` links and needs `sparky-iptv.apk.sha256`. `Repository.download(…, expectedSha256, requireHttps = true)` hashes while streaming and deletes the file on a mismatch. Android's same-key signature check still applies. The checksum guards against corruption or a bad mirror, not against a hijacked GitHub account; the signing key is the real protection.
+- **Updates** (2.5.2): `Updater` trusts only `https://github.com/ashwin-mathias/couch-lab/releases/download/` links and needs `sparky-iptv.apk.sha256`. `Repository.download(…, expectedSha256, requireHttps = true)` hashes while streaming and deletes the file on a mismatch. Android's same-key signature check still applies. (2.9) `Updater.alreadyDownloaded(sha256)` hashes the existing `cache/updates/sparky-iptv.apk`; on a match the download is skipped and the installer opens again. The checksum guards against corruption or a bad mirror, not against a hijacked GitHub account; the signing key is the real protection.
 
 ## 9. Build, release, install
 

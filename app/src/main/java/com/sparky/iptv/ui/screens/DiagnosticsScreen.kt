@@ -80,9 +80,22 @@ fun DiagnosticsScreen(vm: AppViewModel) {
                     }
                 )
                 val sw = vm.switchTimes.toList()
-                if (sw.isNotEmpty()) appendLine("Channel switch: average %.1f s (last %d)".format(sw.average() / 1000.0, sw.size))
+                val st = vm.switchStreamTimes.toList()
+                if (sw.isNotEmpty()) appendLine(
+                    "Channel switch: average %.1f s (last %d)".format(sw.average() / 1000.0, sw.size) +
+                        (if (st.isNotEmpty()) " · stream %.1f s".format(st.average() / 1000.0) else "")
+                )
+                vm.formatTest?.let { appendLine(it) }
+                appendLine(vm.connLimitSummary())
+                val pm = vm.prefs.pauseNoCatchupMax
+                appendLine(if (pm > 0) "Pause without catch-up: longest that worked $pm s" else "Pause without catch-up: no resumes yet")
                 vm.catchupTest?.let { appendLine(it) }
-                appendLine("Playlist type: ${vm.prefs.playlist?.type ?: "none"} · live format ${vm.prefs.liveFormat}")
+                val choice = vm.prefs.liveFormatChoice
+                appendLine(
+                    "Playlist type: ${vm.prefs.playlist?.type ?: "none"} · live format ${vm.prefs.effectiveLiveFormat}" +
+                        if (choice == "auto") " (automatic)" else " (chosen)"
+                )
+                appendLine(AppLog.fileSummary())
                 appendLine("Stream: ${com.sparky.iptv.player.PlayerHolder.streamState()}")
                 appendLine(
                     if (vm.sleepMinutes == 0) "Sleep timer: off"
@@ -116,16 +129,19 @@ fun DiagnosticsScreen(vm: AppViewModel) {
             T("Diagnostics", size = 30, weight = FontWeight.Bold)
             T("Scan to open the full log on your phone, then copy it and send it to Claude.", size = 14, color = C.Muted, maxLines = 3, lineHeight = 1.5f)
             Box(
-                Modifier.size(220.u).clip(RoundedCornerShape(16.u)).background(if (qr != null) C.Text else C.Raised).padding(14.u),
+                Modifier.size(180.u).clip(RoundedCornerShape(16.u)).background(if (qr != null) C.Text else C.Raised).padding(14.u),
                 contentAlignment = Alignment.Center,
             ) {
                 if (qr != null) Image(bitmap = qr, contentDescription = "Log QR code", modifier = Modifier.fillMaxSize())
                 else T("No Wi-Fi", size = 16, color = C.Dim)
             }
             if (url != null) T("Scan with your phone's camera", size = 13, color = C.Dim)
-            T(remember(refreshTick, vm.catchupTest, vm.switchTimes.size) { header().trim() }, size = 12, color = C.Dim, maxLines = 10, lineHeight = 1.5f)
+            T(remember(refreshTick, vm.catchupTest, vm.formatTest, vm.switchTimes.size, vm.connLimitHits) { header().trim() }, size = 12, color = C.Dim, maxLines = 16, lineHeight = 1.4f)
             Spacer(Modifier.weight(1f))
-            PillButton(if (vm.catchupTest == "Testing…") "Testing…" else "Test catch-up") { vm.testCatchup() }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.u)) {
+                PillButton(if (vm.catchupTest == "Testing…") "Testing…" else "Test catch-up") { vm.testCatchup() }
+                PillButton(if (vm.formatTest?.startsWith("Testing") == true) vm.formatTest!! else "Test live formats") { vm.testLiveFormats() }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(12.u)) {
                 PillButton("Refresh", Modifier.focusRequester(first)) { refreshTick++ }
                 if (crash != null) PillButton("Clear crash") { AppLog.clearCrash(); refreshTick++ }

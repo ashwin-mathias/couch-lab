@@ -1,8 +1,6 @@
 package com.sparky.iptv.data
 
-import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
-import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
 import java.io.FileInputStream
@@ -25,15 +23,65 @@ object Snapshot {
         write(b)
     }
 
-    private fun DataInputStream.str(): String? {
-        val n = readInt()
-        if (n < 0) return null
-        val b = ByteArray(n)
-        readFully(b)
-        return String(b, Charsets.UTF_8)
-    }
+    /**
+     * A plain buffered reader for the snapshot files (2.9). DataInputStream over BufferedInputStream
+     * goes through a synchronized read() for every byte of every number; this decodes straight from
+     * one 256 KB buffer, and makes strings without an extra copy. Same file format.
+     */
+    private class FastIn(private val inp: java.io.InputStream) : java.io.Closeable {
+        private val buf = ByteArray(256 * 1024)
+        private var pos = 0
+        private var lim = 0
 
-    private fun DataInputStream.strNN(): String = str() ?: ""
+        /** Makes at least [n] bytes available at [pos] (n ≤ buffer size). */
+        private fun need(n: Int) {
+            if (lim - pos >= n) return
+            System.arraycopy(buf, pos, buf, 0, lim - pos)
+            lim -= pos
+            pos = 0
+            while (lim < n) {
+                val r = inp.read(buf, lim, buf.size - lim)
+                if (r < 0) throw java.io.EOFException()
+                lim += r
+            }
+        }
+
+        fun readInt(): Int {
+            need(4)
+            val b = buf; val p = pos
+            pos += 4
+            return (b[p].toInt() and 0xFF shl 24) or (b[p + 1].toInt() and 0xFF shl 16) or
+                (b[p + 2].toInt() and 0xFF shl 8) or (b[p + 3].toInt() and 0xFF)
+        }
+
+        fun readLong(): Long = (readInt().toLong() shl 32) or (readInt().toLong() and 0xFFFFFFFFL)
+
+        fun str(): String? {
+            val n = readInt()
+            if (n < 0) return null
+            if (n <= buf.size) {
+                need(n)
+                val s = String(buf, pos, n, Charsets.UTF_8)
+                pos += n
+                return s
+            }
+            // Longer than the buffer (never expected): read it in pieces.
+            val out = ByteArray(n)
+            var done = 0
+            while (done < n) {
+                need(1)
+                val k = minOf(lim - pos, n - done)
+                System.arraycopy(buf, pos, out, done, k)
+                pos += k
+                done += k
+            }
+            return String(out, Charsets.UTF_8)
+        }
+
+        fun strNN(): String = str() ?: ""
+
+        override fun close() = inp.close()
+    }
 
     private inline fun write(file: File, block: DataOutputStream.() -> Unit) {
         val tmp = File(file.parentFile, file.name + ".tmp")
@@ -48,9 +96,9 @@ object Snapshot {
         }
     }
 
-    private inline fun <T> read(file: File, block: DataInputStream.(Int) -> T): T? {
+    private inline fun <T> read(file: File, block: FastIn.(Int) -> T): T? {
         if (!file.exists() || file.length() < 8) return null
-        return DataInputStream(BufferedInputStream(FileInputStream(file), 256 * 1024)).use { inp ->
+        return FastIn(FileInputStream(file)).use { inp ->
             if (inp.readInt() != MAGIC) return null
             val v = inp.readInt()
             if (v < 1 || v > VERSION) return null
@@ -63,7 +111,7 @@ object Snapshot {
         list.forEach { str(it.id); str(it.name) }
     }
 
-    private fun DataInputStream.cats(): List<Category> {
+    private fun FastIn.cats(): List<Category> {
         val n = readInt()
         return ArrayList<Category>(n).apply { repeat(n) { add(Category(strNN(), strNN())) } }
     }

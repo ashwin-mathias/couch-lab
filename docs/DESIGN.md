@@ -307,8 +307,8 @@ Since 2.8 the PNGs are stored as **lossless WebP** (identical pixels, about a th
 
 ### 8.16 Diagnostics and About
 - **Diagnostics**: padding 64 × 44; columns spaced 48.
-  - The left column is 340 wide: the QR box 220 (radius 16) and the header text 12 Dim (10 lines).
-  - At the bottom: the **Test catch-up** pill on its own row, then [Refresh, Clear crash].
+  - The left column is 340 wide: the QR box **180** (radius 16; 220 before 2.9, made smaller for the longer header) and the header text 12 Dim (up to 16 lines, line height 1.4).
+  - At the bottom: [**Test catch-up**, **Test live formats** (2.9)], then [Refresh, Clear crash]. While the format test runs, its pill reads "Testing… 3 of 6".
   - Log lines are 12 px, focusable (focused background `Panel`).
 - **About**: padding 64 × 44; columns spaced 56.
   - The left column is 380 wide, spacing 16:

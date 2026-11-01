@@ -207,6 +207,8 @@ fun SettingsScreen(vm: AppViewModel) {
     }
     var sleepDefault by remember { mutableIntStateOf(vm.prefs.sleepDefault) }
     fun setSleepDefault(m: Int) { sleepDefault = m; vm.prefs.sleepDefault = m }
+    var liveFormat by remember { mutableStateOf(vm.prefs.liveFormatChoice) }
+    fun setLiveFormat(c: String) { if (c != liveFormat) { liveFormat = c; vm.setLiveFormatChoice(c) } }
     // Clear watch history asks for a second OK within 3 s.
     var confirmClear by remember { mutableStateOf(false) }
     LaunchedEffect(confirmClear) { if (confirmClear) { delay(3000); confirmClear = false } }
@@ -248,6 +250,25 @@ fun SettingsScreen(vm: AppViewModel) {
                 ) {
                     val i = choices.indexOf(sleepDefault).coerceAtLeast(0)
                     setSleepDefault(choices[(i + 1) % choices.size])
+                }
+
+                // Live format (2.9): Automatic (the provider's format), ts or m3u8. ◀ ▶ change; OK steps.
+                val fmts = com.sparky.iptv.data.LIVE_FORMAT_CHOICES
+                fun fmtLabel(c: String) = if (c == "auto") "Automatic (${vm.prefs.liveFormat})" else c
+                SettingRow(
+                    "Live format", fmtLabel(liveFormat),
+                    Modifier.onPreviewKeyEvent { ev ->
+                        if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        val i = fmts.indexOf(liveFormat).coerceAtLeast(0)
+                        when (ev.nativeKeyEvent.keyCode) {
+                            android.view.KeyEvent.KEYCODE_DPAD_LEFT -> { setLiveFormat(fmts[(i - 1).coerceAtLeast(0)]); true }
+                            android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> { setLiveFormat(fmts[(i + 1).coerceAtMost(fmts.lastIndex)]); true }
+                            else -> false
+                        }
+                    },
+                ) {
+                    val i = fmts.indexOf(liveFormat).coerceAtLeast(0)
+                    setLiveFormat(fmts[(i + 1) % fmts.size])
                 }
 
                 GroupHeading("Library")

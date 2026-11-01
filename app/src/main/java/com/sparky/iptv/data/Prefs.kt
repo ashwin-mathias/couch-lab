@@ -6,6 +6,9 @@ import org.json.JSONObject
 /** Sleep timer lengths, in minutes. */
 val SLEEP_CHOICES = listOf(30, 60, 90)
 
+/** Settings → Playback → Live format (2.9). */
+val LIVE_FORMAT_CHOICES = listOf("auto", "ts", "m3u8")
+
 class Prefs(ctx: Context) {
     private val sp = ctx.getSharedPreferences("sparky", Context.MODE_PRIVATE)
 
@@ -59,9 +62,24 @@ class Prefs(ctx: Context) {
         )
     }.getOrNull()
 
+    /** The live format the provider reports at login ("m3u8" or "ts"). */
     var liveFormat: String
         get() = sp.getString("live_format", "m3u8") ?: "m3u8"
         set(v) = sp.edit().putString("live_format", v).apply()
+
+    /** Settings → Playback → Live format (2.9): "auto" (the provider's format), "ts" or "m3u8". */
+    var liveFormatChoice: String
+        get() = sp.getString("live_format_choice", "auto")?.takeIf { it in LIVE_FORMAT_CHOICES } ?: "auto"
+        set(v) = sp.edit().putString("live_format_choice", v).apply()
+
+    /** The format live links use: the chosen one, or the provider's when Automatic. */
+    val effectiveLiveFormat: String
+        get() = liveFormatChoice.takeIf { it != "auto" } ?: liveFormat
+
+    /** Longest pause that resumed on a channel without catch-up, in seconds (2.9; 0 = none yet). */
+    var pauseNoCatchupMax: Int
+        get() = sp.getInt("pause_nocatchup_max", 0)
+        set(v) = sp.edit().putInt("pause_nocatchup_max", v).apply()
 
     var account: AccountInfo?
         get() = sp.getString("account", null)?.let { raw ->

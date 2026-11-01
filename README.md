@@ -36,6 +36,7 @@ To update, repeat step 4. The code always points to the newest build. Your login
 | Live TV channels | ◀ | Back to the selected group |
 | Full-screen live TV | ▲ / ▼ | Next / previous channel |
 | Full-screen live TV | OK | Pause / play (catch-up channels resume from where you paused) |
+| Full-screen live TV or movie | OK after "Your plan allows one stream" | Try again (Back leaves) |
 | Full-screen live TV | ◀ or Back | Back to the page you came from |
 | Full-screen live TV | ▶ | Audio & subtitles |
 | Full-screen live TV | Hold OK | Add a favorite; on a favorite: menu with Folders… · Remove |

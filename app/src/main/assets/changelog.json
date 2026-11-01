@@ -1,5 +1,20 @@
 [
   {
+    "version": "2.9",
+    "date": "2026-11-01",
+    "title": "Fewer \"too many connections\", faster start",
+    "notes": [
+      "Changing channel now fully closes the old stream first, so your provider is less likely to say \"too many connections\".",
+      "If it still does, Sparky waits and tries three times, then explains: \"Your plan allows one stream. Another device may be watching.\" Press OK to try again.",
+      "New in Settings → Playback: Live format (Automatic, ts or m3u8). Diagnostics → Test live formats measures both and switches to ts if it's faster.",
+      "Channels start a little sooner, and the channel switch time in Diagnostics is now measured honestly.",
+      "Pausing a channel without catch-up: the bar says \"Pause · a few seconds only\", and if the pause was too long, Sparky goes back to live in 4 s instead of 10 s.",
+      "Movies and series are ready sooner after the app starts.",
+      "Pressing Install twice no longer downloads the update twice.",
+      "The activity log stays small even when the app runs for days, and now shows the date."
+    ]
+  },
+  {
     "version": "2.8",
     "date": "2026-10-31",
     "title": "Smaller, smoother, safer",

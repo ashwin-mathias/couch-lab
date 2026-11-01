@@ -60,6 +60,24 @@ object Updater {
 
     fun apkFile(ctx: Context) = File(File(ctx.cacheDir, "updates"), "sparky-iptv.apk")
 
+    /** True if [apkFile] is already the update with this SHA-256, so it needn't be downloaded again (2.9). */
+    suspend fun alreadyDownloaded(ctx: Context, sha256: String): Boolean = withContext(Dispatchers.IO) {
+        val f = apkFile(ctx)
+        if (!f.exists() || f.length() == 0L) return@withContext false
+        runCatching {
+            val md = java.security.MessageDigest.getInstance("SHA-256")
+            f.inputStream().use { inp ->
+                val buf = ByteArray(64 * 1024)
+                while (true) {
+                    val n = inp.read(buf)
+                    if (n < 0) break
+                    md.update(buf, 0, n)
+                }
+            }
+            md.digest().joinToString("") { "%02x".format(it) }.equals(sha256, ignoreCase = true)
+        }.getOrDefault(false)
+    }
+
     fun canInstall(ctx: Context): Boolean =
         Build.VERSION.SDK_INT < 26 || ctx.packageManager.canRequestPackageInstalls()
 

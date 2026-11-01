@@ -45,7 +45,7 @@ object Backup {
     /** Thrown when the passphrase is wrong (or missing for an encrypted file). */
     class WrongPassphrase(message: String) : Exception(message)
 
-    private val PLAYBACK_KEYS = listOf("sub_style", "sleep_default", "vod_audio_lang", "vod_text_lang", "live_format", "catchup_format")
+    private val PLAYBACK_KEYS = listOf("sub_style", "sleep_default", "vod_audio_lang", "vod_text_lang", "live_format", "live_format_choice", "catchup_format")
 
     // ---------------- making a backup ----------------
 

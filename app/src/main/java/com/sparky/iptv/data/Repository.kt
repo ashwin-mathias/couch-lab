@@ -69,7 +69,7 @@ class Repository(private val ctx: Context, val prefs: Prefs) {
                 if (!f.exists()) return@runCatching null
                 return@runCatching M3u.parse(f.readText())
             }
-            StreamUrls.set(p, prefs.liveFormat)
+            StreamUrls.set(p, prefs.effectiveLiveFormat)
             applyCatchupSettings()
             val t0 = System.currentTimeMillis()
             val live = Snapshot.readLive(snapLive) { i, n -> onProgress("Channels ${pct(i, n)}") }
@@ -153,7 +153,7 @@ class Repository(private val ctx: Context, val prefs: Prefs) {
             val acct = x.authenticate()
             prefs.account = acct
             prefs.liveFormat = acct.liveFormat
-            StreamUrls.set(p, acct.liveFormat)
+            StreamUrls.set(p, prefs.effectiveLiveFormat)
             applyCatchupSettings()
             listener.update(0, StepStatus.DONE, acct.status ?: "Signed in")
             AppLog.i("Signed in · status ${acct.status} · format ${acct.liveFormat}")
@@ -323,7 +323,7 @@ class Repository(private val ctx: Context, val prefs: Prefs) {
         if (prefs.account?.offsetMin == null) {
             runCatching { XtreamClient(http, p).authenticate() }.getOrNull()?.let { prefs.account = it }
         }
-        StreamUrls.set(p, prefs.liveFormat)
+        StreamUrls.set(p, prefs.effectiveLiveFormat)
         applyCatchupSettings()
         val quick = http.newBuilder().readTimeout(15, TimeUnit.SECONDS).build()
         val start = System.currentTimeMillis() - 60 * 60_000L
