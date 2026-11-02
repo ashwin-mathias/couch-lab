@@ -43,16 +43,17 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           chmod +x gradlew
-          # Show compiler errors as annotations, so they're visible without the full log.
-          ./gradlew --no-daemon assembleRelease 2>&1 | tee build.log; status=${PIPESTATUS[0]}
+          # 3.0: the shared code's tests run first; then the Android TV app.
+          # Show compiler errors and failed tests as annotations, so they're visible without the full log.
+          ./gradlew --no-daemon :core:test :apps:android-tv:assembleRelease 2>&1 | tee build.log; status=${PIPESTATUS[0]}
           if [ $status -ne 0 ]; then
-            grep -E "^e: |What went wrong" -A2 build.log | head -40 | while IFS= read -r line; do echo "::error::$line"; done
+            grep -E "^e: |What went wrong|FAILED$|Test.*FAILED" -A2 build.log | head -40 | while IFS= read -r line; do echo "::error::$line"; done
             exit $status
           fi
 
       - name: Name the app file
         run: |
-          cp app/build/outputs/apk/release/app-release.apk sparky-iptv.apk
+          cp apps/android-tv/build/outputs/apk/release/app-release.apk sparky-iptv.apk
           # The app checks this fingerprint before it installs an update.
           sha256sum sparky-iptv.apk | cut -d' ' -f1 > sparky-iptv.apk.sha256
 

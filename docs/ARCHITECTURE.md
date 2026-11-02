@@ -22,9 +22,12 @@ How the app is built: the stack, the code layout, the data, storage, and the rel
 | NanoHTTPD | 2.3.1 |
 | ZXing core | 3.5.3 |
 | kotlinx-coroutines-android | 1.8.1 |
+| Gson (streaming `JsonReader` only, in core since 3.0) | 2.11.0 |
+| org.json (core: `compileOnly`; Android supplies it) | 20240303 |
+| Kotlin JVM plugin (core, since 3.0) | 2.0.20 |
 
 - Compiler flags: `-opt-in=androidx.tv.material3.ExperimentalTvMaterial3Api` and `-opt-in=androidx.compose.foundation.ExperimentalFoundationApi`.
-- **R8 since 2.8**: `isMinifyEnabled = true`, `isShrinkResources = true`, `proguard-android-optimize.txt` + `app/proguard-rules.pro`. **`-dontobfuscate`**: names stay readable for crash reports (AppLog finds the app's lines by "com.sparky") and the activity log. The libraries ship their own keep rules; NanoHTTPD and OkHttp's optional TLS providers only need `-dontwarn`. `DebugProbesKt.bin` and `kotlin-tooling-metadata.json` are excluded. Lint does not fail the build. `gradle.properties` sets `-Xmx3g`, AndroidX and non-transitive R.
+- **R8 since 2.8**: `isMinifyEnabled = true`, `isShrinkResources = true`, `proguard-android-optimize.txt` + `apps/android-tv/proguard-rules.pro`. **`-dontobfuscate`**: names stay readable for crash reports (AppLog finds the app's lines by "com.sparky") and the activity log. The libraries ship their own keep rules; NanoHTTPD and OkHttp's optional TLS providers only need `-dontwarn`. `DebugProbesKt.bin` and `kotlin-tooling-metadata.json` are excluded. Lint does not fail the build. `gradle.properties` sets `-Xmx3g`, AndroidX and non-transitive R.
 - No Jetpack Navigation, Room or Hilt. The app keeps its own small screen stack, SharedPreferences, and a hand-written binary cache.
 
 ## 2. Manifest
@@ -42,25 +45,45 @@ How the app is built: the stack, the code layout, the data, storage, and the rel
 
 ## 3. Code layout (`com.sparky.iptv`)
 
+### 3.0 Repository layout (since 3.0)
 ```
-MainActivity.kt          AppLog.init; setContent { App(vm) }; onStart resume + daily-refresh check; onStop pause
-data/
+core/                 shared code, plain Kotlin/JVM (no Android): the data/ package below, plus Platform.kt
+                      (KeyValueStore, SecretStore, MemoryStore, B64). Unit tests in core/src/test run on every build.
+apps/android-tv/      the Google TV app: MainActivity, platform/, player/, setup/, ui/, assets, res
+                      (applicationId com.sparky.iptv and the signing key are unchanged)
+docs/                 these documents
+```
+- Planned (see DECISIONS 3.0): `player/` (a player interface; ExoPlayer, libVLC, VLCKit), `ui-shared/`, `ui-tv/`, `ui-touch/`, `apps/desktop/` (Windows + Mac) and `apps/ios/` (iPhone + iPad). They are split out when their second user arrives (3.1 desktop, 3.2 iOS), so each split can be tested.
+- **The core module can't see Android.** Anything that needs the device goes through an interface the app provides:
+  - `KeyValueStore` (settings; Android: `SharedPrefsStore` over `SharedPreferences "sparky"`, same keys as before).
+  - `SecretStore` (the saved login; Android: `KeystoreSecrets`, the same Keystore key and `v1:` format as 2.8). `AndroidPlatform.store()` installs it before `Prefs` is created.
+  - `AppLog.init(dir, device, version)` and `AppLog.sink` (Android: logcat).
+  - `Repository(filesDir, cacheDir, prefs, online)`.
+  - `Updater.check(repo, installedBuild)` and `Updater.alreadyDownloaded(file, sha)`; installing the APK is `AndroidUpdates` in the app.
+  - Base64 is `B64` (Okio), not `android.util.Base64`.
+
+### 3.1 Packages
+```
+MainActivity.kt          AndroidPlatform.init; setContent { App(vm) }; onStart resume + daily-refresh check; onStop pause
+platform/                (3.0, app) AndroidPlatform (init, store, isOnline), SharedPrefsStore, KeystoreSecrets, AndroidUpdates
+data/                    (core module since 3.0)
   Models.kt              Playlist, Category, StreamUrls, Channel, Movie, Series, Episode, SeriesInfo, MovieInfo,
                          EpgEntry, AccountInfo, Library, RecentItem, Progress
   Names.kt               region prefix parsing, strip, divider rows, event badges, region labels
-  Prefs.kt               all SharedPreferences ("sparky")
+  Platform.kt            (3.0) KeyValueStore, SecretStore, MemoryStore, B64
+  Prefs.kt               all settings, on a KeyValueStore (Android: SharedPreferences "sparky")
   Http.kt                (2.8) one OkHttp base client; Repository and PlayerHolder derive theirs with newBuilder()
                          (shared connection pool and threads)
   Favorites.kt           (2.7) FavFolder + Favs: order/folder JSON, normalize, merge (reorder a filtered view), moveBy, name checks
   Backup.kt              (2.7) backup file format v1: create, read (checks + decrypt), apply (one commit), PBKDF2 + AES-GCM
-  SecretBox.kt           Keystore AES-GCM for the saved login; one-time tokens for the phone pages
+  SecretBox.kt           the saved login through the app's SecretStore; one-time tokens for the phone pages
   Xtream.kt              XtreamClient (player_api.php), URL normalising, getText, JSONObject.s(), Parsers (detail/EPG JSON)
-  StreamParsers.kt       streaming JsonReader parsers for the big lists (categories, live, movies, series)
+  StreamParsers.kt       streaming JsonReader (Gson's, since 3.0) parsers for the big lists (categories, live, movies, series)
   Snapshot.kt            compact binary cache (snap_live/movies/series.bin)
   Repository.kt          OkHttp client, load steps, cached load (live → vod), refresh, download-to-disk, validate,
                          short EPG, movie/series info; M3U parser
   AppLog.kt              redacting activity log + crash file; drops cancelled loads (isCancellation)
-  Updater.kt             GitHub latest-release check, install permission, FileProvider install
+  Updater.kt             GitHub latest-release check, already-downloaded check (installing: AndroidUpdates)
 player/
   PlayerHolder.kt        ONE shared ExoPlayer for previews and full screen
   TrackHelper.kt         list/select audio and subtitle tracks, reset, re-apply remembered language
@@ -126,7 +149,7 @@ res/     drawable/*.xml icons, drawable-nodpi/{logo,avatar}.webp + sparky.jpg, d
 
 ### 4.2 Big lists, memory and speed (the reasons the app doesn't crash)
 1. **Download straight to a temp file** (64 KB buffer, progress every 256 KB). Never `body.string()` for list endpoints.
-2. **Parse with `android.util.JsonReader`** (lenient), one object at a time, keeping only the fields listed above. Category IDs, extensions, ratings and genres are `intern()`ed.
+2. **Parse with a streaming `JsonReader`** (Android's until 2.9; Gson's, the same API, since 3.0), one object at a time, keeping only the fields listed above. Category IDs, extensions, ratings and genres are `intern()`ed.
 3. **Write a compact binary snapshot** after each section succeeds, then delete the temp file and any old JSON cache.
 4. On launch, **read the live snapshot only**, open Home, then read movies and series in the background.
 5. `largeHeap=true`; catch `OutOfMemoryError` per section and show a friendly message.
@@ -298,7 +321,7 @@ Lists that mix focusable rows with non-focusable headings (guide grid, Live TV c
 
 - **GitHub Actions** (`.github/workflows/build.yml`) runs on every push to `main` (doc-only pushes are ignored) and on manual dispatch:
   1. Checkout, then setup-java temurin 17, then setup-gradle, then restore the signing key from secrets.
-  2. `./gradlew --no-daemon assembleRelease`. On failure, the `e: ` and "What went wrong" lines are re-emitted as `::error::` annotations, because raw logs can't be downloaded without auth.
+  2. `./gradlew --no-daemon :core:test :apps:android-tv:assembleRelease` (3.0: the core tests run first; the APK is `apps/android-tv/build/outputs/apk/release/app-release.apk`). On failure, the `e: `, "What went wrong" and failed-test lines are re-emitted as `::error::` annotations, because raw logs can't be downloaded without auth.
   3. Copy to `sparky-iptv.apk`, write `sparky-iptv.apk.sha256`, and publish both in a GitHub release `build-<run_number>` marked latest. Also upload it as an artifact.
 - `versionCode = GITHUB_RUN_NUMBER`; `versionName = "<appVersion> (build N)"`. The release is signed with the key from the GitHub Actions secrets `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` (debug builds too), so each build installs over the last. The workflow decodes the key to `$RUNNER_TEMP/release.jks` and passes `KEYSTORE_PATH` and the passwords to Gradle as environment variables. Without the secrets the build fails with an `::error::` annotation. Keep an offline backup of the keystore: if it is lost, every device needs an uninstall and reinstall.
 - **Install**: the Downloader app, code **6976634** → `https://github.com/ashwin-mathias/couch-lab/releases/latest/download/sparky-iptv.apk`. After that, use in-app updates.

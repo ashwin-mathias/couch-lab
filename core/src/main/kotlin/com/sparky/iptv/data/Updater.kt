@@ -1,11 +1,5 @@
 package com.sparky.iptv.data
 
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
-import android.os.Build
-import android.provider.Settings
-import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -13,21 +7,18 @@ import java.io.File
 
 data class UpdateInfo(val build: Int, val title: String, val apkUrl: String, val sha256: String)
 
-/** Checks GitHub for a newer build and installs it (Android always asks the user to confirm). */
+/**
+ * Checks GitHub for a newer build (3.0: the shared part; installing an APK is in the Android app's
+ * AndroidUpdates).
+ */
 object Updater {
     private const val LATEST = "https://api.github.com/repos/ashwin-mathias/couch-lab/releases/latest"
     /** Downloads are only accepted from this repository's releases. */
     private const val TRUSTED_PREFIX = "https://github.com/ashwin-mathias/couch-lab/releases/download/"
     private val SHA256 = Regex("^[0-9a-fA-F]{64}")
 
-    @Suppress("DEPRECATION")
-    fun installedBuild(ctx: Context): Int = runCatching {
-        val pi = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
-        if (Build.VERSION.SDK_INT >= 28) pi.longVersionCode.toInt() else pi.versionCode
-    }.getOrDefault(0)
-
     /** Returns the newer release, or null if this is already the newest (or GitHub can't be reached). */
-    suspend fun check(ctx: Context, repo: Repository): UpdateInfo? = withContext(Dispatchers.IO) {
+    suspend fun check(repo: Repository, installed: Int): UpdateInfo? = withContext(Dispatchers.IO) {
         runCatching {
             val o = JSONObject(getText(repo.http, LATEST))
             val build = o.optString("tag_name").removePrefix("build-").toIntOrNull() ?: return@runCatching null
@@ -42,7 +33,6 @@ object Updater {
                 if (name.endsWith(".apk")) url = link
                 if (name.endsWith(".apk.sha256")) shaUrl = link
             }
-            val installed = installedBuild(ctx)
             AppLog.i("Update check: installed build $installed, latest build $build")
             if (url == null || build <= installed) return@runCatching null
             if (shaUrl == null) {
@@ -58,11 +48,8 @@ object Updater {
         }.onFailure { AppLog.w("Update check failed: ${it.message}") }.getOrNull()
     }
 
-    fun apkFile(ctx: Context) = File(File(ctx.cacheDir, "updates"), "sparky-iptv.apk")
-
-    /** True if [apkFile] is already the update with this SHA-256, so it needn't be downloaded again (2.9). */
-    suspend fun alreadyDownloaded(ctx: Context, sha256: String): Boolean = withContext(Dispatchers.IO) {
-        val f = apkFile(ctx)
+    /** True if [f] is already the update with this SHA-256, so it needn't be downloaded again (2.9). */
+    suspend fun alreadyDownloaded(f: File, sha256: String): Boolean = withContext(Dispatchers.IO) {
         if (!f.exists() || f.length() == 0L) return@withContext false
         runCatching {
             val md = java.security.MessageDigest.getInstance("SHA-256")
@@ -76,25 +63,5 @@ object Updater {
             }
             md.digest().joinToString("") { "%02x".format(it) }.equals(sha256, ignoreCase = true)
         }.getOrDefault(false)
-    }
-
-    fun canInstall(ctx: Context): Boolean =
-        Build.VERSION.SDK_INT < 26 || ctx.packageManager.canRequestPackageInstalls()
-
-    /** Opens the system screen where the user allows this app to install updates. */
-    fun openInstallPermission(ctx: Context) {
-        if (Build.VERSION.SDK_INT < 26) return
-        val i = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${ctx.packageName}"))
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        runCatching { ctx.startActivity(i) }.onFailure { AppLog.e("Couldn't open install permission screen", it) }
-    }
-
-    /** Hands the downloaded file to Android's installer. */
-    fun launchInstaller(ctx: Context) {
-        val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.files", apkFile(ctx))
-        val i = Intent(Intent.ACTION_VIEW)
-            .setDataAndType(uri, "application/vnd.android.package-archive")
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-        ctx.startActivity(i)
     }
 }

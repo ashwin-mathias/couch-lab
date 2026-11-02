@@ -1,5 +1,14 @@
 [
   {
+    "version": "3.0",
+    "date": "2026-11-01",
+    "title": "Getting ready for Windows, Mac, iPhone and iPad",
+    "notes": [
+      "Behind the scenes, Sparky's code is now split into a shared part and the Google TV app, so the same code can power Windows, Mac, iPhone and iPad versions.",
+      "Nothing changes on your TV: your login, favorites, folders, resume points and settings stay as they are."
+    ]
+  },
+  {
     "version": "2.9",
     "date": "2026-11-01",
     "title": "Fewer \"too many connections\", faster start",

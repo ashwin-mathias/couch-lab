@@ -188,6 +188,14 @@ Tick each box. Note the build number at the top of the run.
 - [ ] L0c. After upgrading from 2.5.1, the login still works with no re-entry. `adb shell run-as com.sparky.iptv cat shared_prefs/sparky.xml` shows `playlist_enc` and no `playlist`, and no readable password.
 - [ ] L0d. `adb backup` of the app produces no data (backup disabled).
 
+## L10. Restructure (3.0, no visible change)
+- [ ] L10a. The in-app update installs 3.0 over 2.9 **in place** (no uninstall): same login, favorites, folders, resume points, subtitle style, Live format (ts) and regions.
+- [ ] L10b. The saved login still opens (it's read through the Keystore exactly as before): Settings → ACCOUNT shows the playlist; channels play.
+- [ ] L10c. Quick pass of every screen: Home, Live TV (preview and full screen, pause), Guide (including a past show), Movies, Series, Search, Favorites, Settings, Diagnostics (log on the phone), About (release history shows 3.0).
+- [ ] L10d. Back up settings to the phone, then restore it (Add): favorites and folders unchanged. Old backups still restore.
+- [ ] L10e. Diagnostics: "App started · Google Chromecast · Android 14" and a date line at start; Test live formats still works.
+- [ ] L10f. The GitHub build runs the core tests (`:core:test`) and they pass.
+
 ## L9. Connection limit, switching, pauses, update, startup and log (2.9)
 - [ ] L9a. Switch channels quickly 20 times (▲ ▲ ▲ …, letting each play): no "too many connections". Diagnostics shows "Connection limit: no hits today".
 - [ ] L9b. Play on the Shield, then start a channel on the Chromecast: "Waiting for the provider · try 1 of 3", 2 of 3, 3 of 3 (about 19 s in all), then "Your plan allows one stream. Another device may be watching. Press OK to try again." Stop the Shield, press OK: the channel plays. The log shows each try and the code; the screen never shows "HTTP 458".

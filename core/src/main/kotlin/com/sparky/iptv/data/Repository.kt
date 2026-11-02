@@ -1,8 +1,5 @@
 package com.sparky.iptv.data
 
-import android.content.Context
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -22,23 +19,32 @@ fun interface LoadListener {
     fun update(index: Int, status: StepStatus, detail: String)
 }
 
-class Repository(private val ctx: Context, val prefs: Prefs) {
+/**
+ * Downloads, saves and reads the library. [filesDir] holds the saved copies, [cacheDir] temporary
+ * downloads; [online] says whether the device has internet (3.0: passed in by the app).
+ */
+class Repository(
+    private val filesDir: File,
+    private val cacheDir: File,
+    val prefs: Prefs,
+    private val online: () -> Boolean = { true },
+) {
 
     val http: OkHttpClient = Http.base.newBuilder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
         .build()
 
-    private fun cacheFile(name: String) = File(ctx.filesDir, "cache_$name.json")
-    private fun tempFile(name: String) = File(ctx.cacheDir, "dl_$name.json")
-    private val snapLive get() = File(ctx.filesDir, "snap_live.bin")
-    private val snapMovies get() = File(ctx.filesDir, "snap_movies.bin")
-    private val snapSeries get() = File(ctx.filesDir, "snap_series.bin")
+    private fun cacheFile(name: String) = File(filesDir, "cache_$name.json")
+    private fun tempFile(name: String) = File(cacheDir, "dl_$name.json")
+    private val snapLive get() = File(filesDir, "snap_live.bin")
+    private val snapMovies get() = File(filesDir, "snap_movies.bin")
+    private val snapSeries get() = File(filesDir, "snap_series.bin")
 
     fun hasCache(): Boolean = snapLive.exists() || cacheFile("get_live_streams").exists() || cacheFile("m3u").exists()
 
     fun clearCache() {
-        ctx.filesDir.listFiles()?.filter { it.name.startsWith("cache_") || it.name.startsWith("snap_") }?.forEach { it.delete() }
+        filesDir.listFiles()?.filter { it.name.startsWith("cache_") || it.name.startsWith("snap_") }?.forEach { it.delete() }
     }
 
     private fun xtream(): XtreamClient? =
@@ -51,11 +57,7 @@ class Repository(private val ctx: Context, val prefs: Prefs) {
             LoadStep("Series"), LoadStep("Preparing your library"),
         )
 
-    fun isOnline(): Boolean = runCatching {
-        val cm = ctx.getSystemService(ConnectivityManager::class.java)
-        val caps = cm.getNetworkCapabilities(cm.activeNetwork)
-        caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
-    }.getOrDefault(true)
+    fun isOnline(): Boolean = runCatching { online() }.getOrDefault(true)
 
     /**
      * Fast start, step 1: only the live channels (small), so Home can open right away.
