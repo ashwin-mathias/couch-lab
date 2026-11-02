@@ -8,6 +8,12 @@ Why the app is the way it is. Read this before changing behaviour, so settled qu
 
 | Version | Decision | Reason |
 |---|---|---|
+| 3.0 | **One Kotlin codebase for Google TV, Windows, Mac, iPhone and iPad**: core logic shared everywhere; player per platform (ExoPlayer, libVLC, VLCKit); TV-style UI for Google TV, Windows and Mac; a touch UI for iPhone and iPad | Ashwin's plan (2026-11-01). Apple's player can't play `.ts` live streams or `.mkv` movies, so Apple devices use VLC's engine |
+| 3.0 | **Licence stays MIT; Windows and Mac use our own small libVLC binding** instead of vlcj | vlcj is GPL, and the GPL is widely considered incompatible with App Store terms. libVLC and VLCKit are LGPL. Reverses the earlier GPL + vlcj choice |
+| 3.0 | **Mac: notarized download first**, Mac App Store later. Windows: Microsoft Store | Ashwin's choice |
+| 3.0 | **iPhone and iPad: mockups agreed before building** (3.2) | The TV screens are built for a remote, not touch |
+| 3.0 | **Order: 3.0 restructure (Android only, no visible change) → 3.1 Windows + Mac → 3.2 iPhone + iPad → Apple TV later** | Each step can be tested on its own; Apple TV has no official Compose support yet |
+| 3.0 | **3.0 splits out only `core/` (plain Kotlin/JVM) and moves the app to `apps/android-tv/`**; `player/`, `ui-shared/`, `ui-tv/` and `ui-touch/` are split when their second user arrives (3.1, 3.2) | A split with only one user can't be tested, and the UI would be refactored twice. The plain JVM module makes it impossible for Android code to creep into the shared code |
 | 2.9 | **On a connection limit (HTTP 429/458/509), retry three times (3 s, 6 s, 10 s) and explain in plain words**; never show the raw code on screen | The 2.8 log showed FOX NEWS failing after a single 3 s retry. Ashwin wasn't using the Shield then, so the provider holding the slot is the likely cause |
 | 2.9 | **Close idle provider connections on every channel switch**, measured; fall back to "only after a 458" if switching gets slower | Ashwin chose this over evicting only after a 458; one connection allowed |
 | 2.9 | **Live format setting (Automatic / ts / m3u8) and a format test; if ts is clearly faster, the test switches Ashwin's TV to ts** | Ashwin's choice. Automatic stays the default |
@@ -94,6 +100,7 @@ Why the app is the way it is. Read this before changing behaviour, so settled qu
 24. **Turning on R8 needs its own check on the TV.** Shrinking can remove code reached only by reflection; build it as a separate step and run the acceptance list.
 21. **Never move focus from an effect keyed on data.** `LaunchedEffect(channels) { requestFocus() }` in the channel list fired every time the Groups pane changed the group, so focus jumped panes (the 2.6 bug). Move focus only on an explicit user action or on first entry.
 22. **When a key opens a dialog on long press, open it on the key's release.** Otherwise the release (and repeats) arrive in the dialog and can press its first row.
+27. **A shared module must not be able to see the platform.** Making core a plain JVM module (not an Android library) means any `android.*` import fails the build, instead of being found when the desktop app is built.
 25. **One-connection plans need the old stream closed, not just replaced.** Swapping the media item left a kept-alive socket in the OkHttp pool that the provider could still count (HTTP 458). Stop the player and evict idle connections before opening the next stream.
 26. **Measure what you mean.** A timing that includes no-op cases (same channel, retries) makes the average look better than reality. Exclude them and log them separately.
 20. **On TV, never rely on the default ▲/▼ focus search across non-focusable rows in a lazy list.** Headings between rows, and rows that aren't composed yet, make it jump to a far cell, a header pill or another row (the 2.5 guide bug). Scroll to the target first, then request focus on it (`ListNav`).

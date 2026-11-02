@@ -1,6 +1,5 @@
 package com.sparky.iptv.data
 
-import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.SecureRandom
@@ -225,11 +224,11 @@ object Backup {
         val iv = ByteArray(12).also { rnd.nextBytes(it) }
         val c = Cipher.getInstance("AES/GCM/NoPadding")
         c.init(Cipher.ENCRYPT_MODE, SecretKeySpec(pbkdf2(pass, salt), "AES"), GCMParameterSpec(128, iv))
-        return Base64.encodeToString(salt + iv + c.doFinal(plain.toByteArray(Charsets.UTF_8)), Base64.NO_WRAP)
+        return B64.encode(salt + iv + c.doFinal(plain.toByteArray(Charsets.UTF_8)))
     }
 
     private fun decrypt(b64: String, pass: String): String? = runCatching {
-        val raw = Base64.decode(b64, Base64.NO_WRAP)
+        val raw = B64.decode(b64) ?: throw IllegalArgumentException("not Base64")
         if (raw.size < 16 + 12 + 16) return null
         val c = Cipher.getInstance("AES/GCM/NoPadding")
         c.init(Cipher.DECRYPT_MODE, SecretKeySpec(pbkdf2(pass, raw.copyOfRange(0, 16)), "AES"), GCMParameterSpec(128, raw.copyOfRange(16, 28)))

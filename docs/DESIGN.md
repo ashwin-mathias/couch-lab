@@ -110,7 +110,7 @@ Time formats: clock `h:mm a`; short `h:mm`; day `EEEE, MMM d`; date `MMM d, yyyy
 
 ## 7. Icons
 
-All icons are **24×24 vector drawables, white, tinted at runtime**. Line icons use stroke 1.8 with round caps and joins and no fill. **Copy the XML files from `app/src/main/res/drawable/` exactly.** The path data is repeated here so they can be recreated without the repo.
+All icons are **24×24 vector drawables, white, tinted at runtime**. Line icons use stroke 1.8 with round caps and joins and no fill. **Copy the XML files from `apps/android-tv/src/main/res/drawable/` exactly.** The path data is repeated here so they can be recreated without the repo.
 
 | File | Style | pathData |
 |---|---|---|

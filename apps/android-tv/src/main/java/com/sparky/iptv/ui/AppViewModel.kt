@@ -52,8 +52,8 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
-    val prefs = Prefs(app)
-    val repo = Repository(app, prefs)
+    val prefs = Prefs(com.sparky.iptv.platform.AndroidPlatform.store(app))
+    val repo = Repository(app.filesDir, app.cacheDir, prefs) { com.sparky.iptv.platform.AndroidPlatform.isOnline(app) }
 
     val stack = mutableStateListOf<Screen>()
     val current: Screen get() = stack.lastOrNull() ?: Screen.Loading
@@ -253,7 +253,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun checkForUpdate(manual: Boolean = false) {
         viewModelScope.launch {
             if (manual) toast = "Checking for updates…"
-            val u = Updater.check(getApplication(), repo)
+            val u = Updater.check(repo, com.sparky.iptv.platform.AndroidUpdates.installedBuild(getApplication()))
             update = u
             if (u != null && (!updateNoticeShown || manual)) {
                 updateNoticeShown = true
@@ -267,9 +267,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun installUpdate() {
         val u = update ?: return
         val app = getApplication<Application>()
-        if (!Updater.canInstall(app)) {
+        if (!com.sparky.iptv.platform.AndroidUpdates.canInstall(app)) {
             toast = "Allow Sparky IPTV to install updates, then press Back"
-            Updater.openInstallPermission(app)
+            com.sparky.iptv.platform.AndroidUpdates.openInstallPermission(app)
             return
         }
         // Ignore extra presses while downloading, and for 10 s after the installer opens.
@@ -278,10 +278,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 updateProgress = "Starting download…"
-                val f = Updater.apkFile(app)
+                val f = com.sparky.iptv.platform.AndroidUpdates.apkFile(app)
                 // 2.9: the same build already downloaded (for example after backing out of the
                 // installer) is reused, not downloaded again.
-                if (Updater.alreadyDownloaded(app, u.sha256)) {
+                if (Updater.alreadyDownloaded(f, u.sha256)) {
                     AppLog.i("Update build ${u.build} already downloaded; opening the installer")
                 } else {
                     repo.download(u.apkUrl, f, expectedSha256 = u.sha256, requireHttps = true) { b ->
@@ -291,7 +291,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 updateProgress = null
                 installLockUntil = System.currentTimeMillis() + 10_000
-                Updater.launchInstaller(app)
+                com.sparky.iptv.platform.AndroidUpdates.launchInstaller(app)
             } catch (t: Throwable) {
                 if (t is kotlinx.coroutines.CancellationException) throw t
                 AppLog.e("Update download failed", t)

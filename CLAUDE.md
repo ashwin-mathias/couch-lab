@@ -3,8 +3,8 @@
 Read `docs/README.md` first. The docs in `docs/` are the source of truth for behaviour, design and architecture.
 
 ## Every release (required, same commit as the code)
-1. Bump `appVersion` in `app/build.gradle.kts`.
-2. Add a newest-first entry to `app/src/main/assets/changelog.json` (`version`, `date` YYYY-MM-DD, `title`, `notes`).
+1. Bump `appVersion` in `apps/android-tv/build.gradle.kts`.
+2. Add a newest-first entry to `apps/android-tv/src/main/assets/changelog.json` (`version`, `date` YYYY-MM-DD, `title`, `notes`).
 3. Update the docs that the change touches:
    - `docs/SPEC.md` for behaviour, keys or on-screen text.
    - `docs/DESIGN.md` for sizes, colours, components or icons.

@@ -8,7 +8,7 @@ Paste the prompt below into a new Claude Code session (or any coding agent) that
 
 ```text
 You are rebuilding "Sparky IPTV", an Android TV / Google TV IPTV app (package com.sparky.iptv),
-from its specification. The result must match the shipping version in behaviour, look and feel. The current version is in `appVersion` in app/build.gradle.kts and at the top of docs/SPEC.md; the docs describe it. If this prompt and the docs disagree, the docs win.
+from its specification. The result must match the shipping version in behaviour, look and feel. The current version is in `appVersion` in apps/android-tv/build.gradle.kts and at the top of docs/SPEC.md; the docs describe it. If this prompt and the docs disagree, the docs win.
 
 ## Read first (these files are the source of truth, in this order)
 1. docs/SPEC.md          – what every screen and key does (behaviour, texts, rules)
@@ -23,9 +23,9 @@ instead of inventing new behaviour.
 - Use exactly the stack and versions in ARCHITECTURE.md §1 (AGP 8.5.2, Kotlin 2.0.20, Compose for TV
   tv-material 1.0.0, Media3 1.4.1, OkHttp 4.12.0, Coil 2.7.0, NanoHTTPD 2.3.1, ZXing 3.5.3, JDK 17,
   minSdk 23, target 34). No extra libraries (no Navigation, Room, Hilt, Retrofit, Moshi).
-- Copy these files byte-for-byte from the repo and don't regenerate them: app/src/main/res/drawable/*.xml
+- Copy these files byte-for-byte from the repo and don't regenerate them: apps/android-tv/src/main/res/drawable/*.xml
   (16 icons), res/drawable-nodpi/logo.webp and avatar.webp, res/drawable-xhdpi/banner.webp,
-  res/mipmap-*/ic_launcher.webp, res/font/inter_*.otf, app/proguard-rules.pro, assets/changelog.json,
+  res/mipmap-*/ic_launcher.webp, res/font/inter_*.otf, apps/android-tv/proguard-rules.pro, assets/changelog.json,
   assets/about.json, gradle wrapper files.
 - UI sizes are written in design px. Implement the `.u` (×0.75 dp) and `.su` (×0.75 sp) units and use them
   everywhere. Use the colour tokens in DESIGN.md §2 by name (object C). Use no other colours, except the few

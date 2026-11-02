@@ -7,7 +7,7 @@ plugins {
 // Every GitHub build gets a higher version so updates install over the old app.
 val buildNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
 // Bump this with each release and add a matching entry to app/src/main/assets/changelog.json.
-val appVersion = "2.9"
+val appVersion = "3.0"
 
 android {
     namespace = "com.sparky.iptv"
@@ -77,6 +77,9 @@ android {
 }
 
 dependencies {
+    // 3.0: the shared code (no Android in it).
+    implementation(project(":core"))
+
     val composeBom = platform("androidx.compose:compose-bom:2024.09.00")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")

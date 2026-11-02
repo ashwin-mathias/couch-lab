@@ -1,7 +1,7 @@
 package com.sparky.iptv.data
 
-import android.util.JsonReader
-import android.util.JsonToken
+import com.google.gson.stream.JsonReader
+import com.google.gson.stream.JsonToken
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileInputStream

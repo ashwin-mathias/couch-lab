@@ -5,7 +5,6 @@ import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
-import com.sparky.iptv.data.AppLog
 import com.sparky.iptv.player.PlayerHolder
 import com.sparky.iptv.ui.App
 import com.sparky.iptv.ui.AppViewModel
@@ -15,7 +14,7 @@ class MainActivity : ComponentActivity() {
     private val vm: AppViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        AppLog.init(applicationContext)
+        com.sparky.iptv.platform.AndroidPlatform.init(applicationContext)
         super.onCreate(savedInstanceState)
         setContent { App(vm) }
     }

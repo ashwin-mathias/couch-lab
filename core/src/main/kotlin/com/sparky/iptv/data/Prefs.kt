@@ -1,6 +1,5 @@
 package com.sparky.iptv.data
 
-import android.content.Context
 import org.json.JSONObject
 
 /** Sleep timer lengths, in minutes. */
@@ -9,8 +8,8 @@ val SLEEP_CHOICES = listOf(30, 60, 90)
 /** Settings → Playback → Live format (2.9). */
 val LIVE_FORMAT_CHOICES = listOf("auto", "ts", "m3u8")
 
-class Prefs(ctx: Context) {
-    private val sp = ctx.getSharedPreferences("sparky", Context.MODE_PRIVATE)
+/** All settings, on the device's key-value store (3.0: passed in, so the same code runs on every platform). */
+class Prefs(private val sp: KeyValueStore) {
 
     // The decrypted login, kept in memory: decrypting goes through the Android Keystore, and the
     // login is read for every channel row and guide cell (2.8). Cleared whenever it is set.
@@ -127,8 +126,8 @@ class Prefs(ctx: Context) {
         set(v) = sp.edit().apply { if (v == null) remove("restore_pending") else putString("restore_pending", v) }.apply()
 
     /** Raw access for backup and restore (see Backup). */
-    internal fun all(): Map<String, *> = sp.all
-    internal fun edit(): android.content.SharedPreferences.Editor = sp.edit()
+    internal fun all(): Map<String, *> = sp.all()
+    internal fun edit(): KeyValueStore.Editor = sp.edit()
 
     fun progress(key: String): Progress? {
         val parts = sp.getString("pos:$key", null)?.split(",") ?: return null
@@ -143,12 +142,12 @@ class Prefs(ctx: Context) {
     fun clearProgress(key: String) = sp.edit().remove("pos:$key").apply()
 
     fun allProgress(prefix: String): List<Progress> =
-        sp.all.keys.filter { it.startsWith("pos:$prefix") }.mapNotNull { progress(it.removePrefix("pos:")) }
+        sp.all().keys.filter { it.startsWith("pos:$prefix") }.mapNotNull { progress(it.removePrefix("pos:")) }
 
     fun clearAllProgress() {
         val e = sp.edit()
         // Watch history, plus remembered audio / subtitle choices.
-        sp.all.keys.filter { it.startsWith("pos:") || it.startsWith("slast:") || it.startsWith("trk:") }.forEach { e.remove(it) }
+        sp.all().keys.filter { it.startsWith("pos:") || it.startsWith("slast:") || it.startsWith("trk:") }.forEach { e.remove(it) }
         e.remove("trk_order").remove("vod_audio_lang").remove("vod_text_lang")
         e.apply()
     }
@@ -206,7 +205,7 @@ class Prefs(ctx: Context) {
     private fun trackOrder(): List<String> = runCatching {
         // Choices saved before the cap existed are picked up the first time.
         val raw = sp.getString("trk_order", null)
-            ?: return sp.all.keys.filter { it.startsWith("trk:") }.map { it.removePrefix("trk:") }
+            ?: return sp.all().keys.filter { it.startsWith("trk:") }.map { it.removePrefix("trk:") }
         val arr = org.json.JSONArray(raw)
         List(arr.length()) { arr.getString(it) }
     }.getOrDefault(emptyList())

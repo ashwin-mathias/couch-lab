@@ -1,6 +1,5 @@
 package com.sparky.iptv.data
 
-import android.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -206,7 +205,7 @@ object Parsers {
 
     private fun b64(s: String?): String {
         if (s.isNullOrBlank()) return ""
-        return runCatching { String(Base64.decode(s, Base64.DEFAULT), Charsets.UTF_8).trim() }.getOrDefault(s)
+        return runCatching { B64.decode(s)?.let { String(it, Charsets.UTF_8).trim() } ?: s }.getOrDefault(s)
     }
 
     private fun parseDuration(s: String?): Int {

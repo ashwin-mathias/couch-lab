@@ -1,8 +1,5 @@
 package com.sparky.iptv.data
 
-import android.content.Context
-import android.os.Build
-import android.util.Log
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -33,14 +30,22 @@ object AppLog {
     private val time = SimpleDateFormat("HH:mm:ss", Locale.US)
     private val secrets = mutableSetOf<String>()
 
-    fun init(ctx: Context) {
+    /** Also sends each line here (Android: logcat). */
+    @Volatile var sink: (String) -> Unit = {}
+    @Volatile private var versionName: String? = null
+
+    /**
+     * Starts the log in [dir] (the app's private files). [device] reads like
+     * "Google Chromecast · Android 14"; [version] like "3.0 (build 24)" (3.0: passed in by the app).
+     */
+    fun init(dir: File, device: String, version: String?) {
         if (logFile != null) return
-        val dir = ctx.filesDir
+        versionName = version
         logFile = File(dir, "app_log.txt")
         crashFile = File(dir, "last_crash.txt")
         synchronized(this) { trimFile() }
-        installCrashHandler(ctx)
-        i("App started · ${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE}")
+        installCrashHandler(dir)
+        i("App started · $device")
     }
 
     /** Values that must never appear in the log (the password, and the username in URLs). */
@@ -109,7 +114,7 @@ object AppLog {
     }
 
     private fun append(line: String) {
-        Log.d("SparkyIPTV", line)
+        runCatching { sink(line) }
         lines.addLast(line)
         while (lines.size > MAX_LINES) lines.removeFirst()
         runCatching { logFile?.appendText(line + "\n") }
@@ -183,14 +188,13 @@ object AppLog {
 
     fun clearCrash() { runCatching { crashFile?.delete(); seenFile()?.delete() } }
 
-    private fun installCrashHandler(ctx: Context) {
+    private fun installCrashHandler(dir: File) {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, e ->
             runCatching {
                 val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
-                val version = runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull()
-                File(ctx.filesDir, "last_crash.txt").writeText(
-                    "$stamp · version $version · thread ${thread.name}\n" + redact(Log.getStackTraceString(e))
+                File(dir, "last_crash.txt").writeText(
+                    "$stamp · version $versionName · thread ${thread.name}\n" + redact(e.stackTraceToString())
                 )
                 add("CRASH", "${e.javaClass.simpleName}: ${e.message}")
             }
