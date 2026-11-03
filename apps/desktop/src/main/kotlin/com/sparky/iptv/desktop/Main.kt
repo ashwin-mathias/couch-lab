@@ -72,7 +72,17 @@ fun main() = application {
             val scale = minOf(maxWidth.value / 960f, maxHeight.value / 540f)
             val d = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(d.density * scale, d.fontScale)) {
-                Box(Modifier.requiredSize(960.dp, 540.dp)) { App(vm) }
+                Box(Modifier.requiredSize(960.dp, 540.dp)) {
+                    // Test hook for CI (SPARKY_DEMO_VIDEO=<url>): plays the video full screen, to check
+                    // the libVLC path on a machine without a provider login. Not used otherwise.
+                    val demo = System.getenv("SPARKY_DEMO_VIDEO")
+                    if (demo != null) {
+                        androidx.compose.runtime.LaunchedEffect(Unit) { PlayerHolder.play(demo) }
+                        com.sparky.iptv.ui.components.PlayerSurface(Modifier.fillMaxSize())
+                    } else {
+                        App(vm)
+                    }
+                }
             }
         }
     }
