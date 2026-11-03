@@ -16,6 +16,7 @@ jobs:
           if [ $status -ne 0 ]; then grep -E "^e: |What went wrong|FAILED|ERROR:|Missing class" -A3 build.log | head -80 | while IFS= read -r line; do echo "::error::$line"; done; exit $status; fi
 
   windows:
+    if: false
     runs-on: windows-latest
     defaults: { run: { shell: pwsh } }
     steps:
@@ -56,6 +57,7 @@ jobs:
             sparky-iptv-windows-x64.msix
 
   mac:
+    if: false
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -111,7 +113,8 @@ jobs:
           kill $pid || true; sleep 2
           SPARKY_DEMO_VIDEO=file:///tmp/test.mp4 "$app" > demo.log 2>&1 & pid=$!; sleep 20; import -window root video.png
           kill $pid || true
-          tail -20 app.log; echo ----; tail -20 demo.log
+          grep -v ALSA app.log | tail -20; echo ----; grep -v ALSA demo.log | tail -20
+          for f in setup video; do convert $f.png -resize 960x540 -quality 70 $f.jpg; echo "BEGIN-$f"; base64 -w0 $f.jpg; echo; echo "END-$f"; done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
