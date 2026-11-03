@@ -19,7 +19,7 @@ object TrackType {
 }
 
 /** A playback error without the player library's types (3.1). */
-class PError(val httpCode: Int?, val codeName: String, val kind: Kind) : Exception(codeName) {
+class PError(val httpCode: Int?, val errorCodeName: String, val kind: Kind) : Exception(errorCodeName) {
     enum class Kind { HTTP, TIMEOUT, CONNECTION, DAMAGED, BEHIND_LIVE, OTHER }
     val behindLiveWindow get() = kind == Kind.BEHIND_LIVE
 }

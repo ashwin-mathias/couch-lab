@@ -675,8 +675,8 @@ private fun TrackPanel(
     modifier: Modifier = Modifier,
 ) {
     val player = remember { PlayerHolder.get() }
-    val audio = remember(tick) { TrackHelper.options(player, MediaTrackType.AUDIO) }
-    val subs = remember(tick) { TrackHelper.options(player, MediaTrackType.TEXT) }
+    val audio = remember(tick) { TrackHelper.options(player, TrackType.AUDIO) }
+    val subs = remember(tick) { TrackHelper.options(player, TrackType.TEXT) }
     val subsOn = remember(tick) { TrackHelper.subtitlesOn(player) }
     val first = remember { FocusRequester() }
     val styleFirst = remember { FocusRequester() }
@@ -724,7 +724,7 @@ private fun TrackPanel(
         }
         if (audio.size > 1) audio.forEachIndexed { i, o ->
             TrackRow(o.label, o.selected, if (i == 0) Modifier.focusRequester(first) else Modifier) {
-                TrackHelper.select(player, MediaTrackType.AUDIO, o)
+                TrackHelper.select(player, TrackType.AUDIO, o)
                 saveChoice(o.language, null)
                 onChanged()
             }
@@ -741,7 +741,7 @@ private fun TrackPanel(
         }
         subs.forEach { o ->
             TrackRow(o.label, subsOn && o.selected) {
-                TrackHelper.select(player, MediaTrackType.TEXT, o)
+                TrackHelper.select(player, TrackType.TEXT, o)
                 saveChoice(null, o.language ?: "")
                 onChanged()
             }
@@ -1027,7 +1027,7 @@ private fun VodPlayer(vm: AppViewModel, req: PlayRequest.Vod) {
             }
             override fun onTracksChanged() {
                 // Apply the general movies & series setting once per title; changes made in the panel stay put.
-                if (appliedFor != item.key && !tracks.isEmpty) {
+                if (appliedFor != item.key && (player.tracks(TrackType.AUDIO).isNotEmpty() || player.tracks(TrackType.TEXT).isNotEmpty())) {
                     val (audio, text) = vm.prefs.vodTrackChoice()
                     if (audio != null || text != null) TrackHelper.applyRemembered(player, audio, text)
                     appliedFor = item.key
