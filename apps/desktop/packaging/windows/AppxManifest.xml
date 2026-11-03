@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Sparky IPTV for the Microsoft Store (3.1). Identity reserved in Partner Center (Store ID 9P01WT4DC59W).
-     VERSION is filled in by CI as 3.1.<build>.0. The Store signs the package on submission. -->
+     @VERSION@ is filled in by CI as 3.1.<build>.0. The Store signs the package on submission. -->
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
@@ -8,7 +8,7 @@
   IgnorableNamespaces="uap rescap">
   <Identity Name="AshwinMathias.SparkyIPTV"
             Publisher="CN=7E8438D5-12B0-4FC0-9098-FE994BBCE149"
-            Version="VERSION"
+            Version="@VERSION@"
             ProcessorArchitecture="x64" />
   <Properties>
     <DisplayName>Sparky IPTV</DisplayName>

@@ -43,7 +43,7 @@ jobs:
           Get-ChildItem $app | Format-Table Name
           Compress-Archive -Path $app -DestinationPath sparky-iptv-windows-x64.zip
           $ver = "3.1.$env:GITHUB_RUN_NUMBER.0"
-          (Get-Content apps/desktop/packaging/windows/AppxManifest.xml) -replace 'VERSION', $ver | Set-Content "$app/AppxManifest.xml"
+          (Get-Content apps/desktop/packaging/windows/AppxManifest.xml) -creplace '@VERSION@', $ver | Set-Content "$app/AppxManifest.xml"
           Copy-Item apps/desktop/packaging/windows/Assets "$app/Assets" -Recurse
           $makeappx = Get-ChildItem "C:/Program Files (x86)/Windows Kits/10/bin/*/x64/makeappx.exe" | Sort-Object FullName | Select-Object -Last 1
           & $makeappx.FullName pack /d $app /p sparky-iptv-windows-x64.msix /o
