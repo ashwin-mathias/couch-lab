@@ -188,6 +188,24 @@ Tick each box. Note the build number at the top of the run.
 - [ ] L0c. After upgrading from 2.5.1, the login still works with no re-entry. `adb shell run-as com.sparky.iptv cat shared_prefs/sparky.xml` shows `playlist_enc` and no `playlist`, and no readable password.
 - [ ] L0d. `adb backup` of the app produces no data (backup disabled).
 
+## W. Windows and Mac (3.1) — ASHWIN-PC (Windows 11) and an Apple-silicon Mac
+- [ ] W1. Windows: unzip `sparky-iptv-windows-x64.zip`, run `Sparky IPTV.exe`: the setup screen appears in a 16:9 window. Allow network access if Windows asks.
+- [ ] W2. Mac: open the DMG, drag to Applications, Open Anyway once (Privacy & Security): the setup screen appears.
+- [ ] W3. Set up with the phone (same Wi-Fi): channels load, Home opens. Restoring a backup made on the TV brings the favorites, folders and settings.
+- [ ] W4. Arrows, Enter, Esc, Space, Page Up/Down, M, L work as in SPEC §21.3. Holding Enter on a channel opens the favourite action. Holding an arrow scrolls smoothly.
+- [ ] W5. Mouse: hover moves the focus, a click opens, the wheel scrolls.
+- [ ] W6. Live TV plays with sound; ▲/▼ switch channels; pause and resume work; a catch-up show plays from the guide.
+- [ ] W7. A movie plays, seeks with ◀ ▶, and resumes where you left it; audio and subtitle tracks can be chosen.
+- [ ] W8. F11 toggles full screen; resizing the window keeps the layout in proportion.
+- [ ] W9. Close and reopen: the login and settings are kept. The settings file is in %LOCALAPPDATA%\Sparky IPTV (Mac: ~/Library/Application Support/Sparky IPTV), and the login in it is not readable text.
+- [ ] W10. Diagnostics shows the computer ("Windows 11 · amd64") and the log; the phone log page works.
+- [ ] W11. Microsoft Store: `sparky-iptv-windows-x64.msix` uploads to Partner Center without package errors.
+- [ ] W12. The GitHub build's desktop smoke test passes (the app starts and libVLC loads).
+
+## L11. Shared screens (3.1, no visible change on the TV)
+- [ ] L11a. The update installs 3.1 over 3.0 in place; login, favorites, folders and settings kept.
+- [ ] L11b. Quick pass of every screen, the player (live, pause, catch-up, a movie with subtitles), the subtitle style preview, and the setup / backup QR codes (they scan).
+
 ## L10. Restructure (3.0, no visible change)
 - [ ] L10a. The in-app update installs 3.0 over 2.9 **in place** (no uninstall): same login, favorites, folders, resume points, subtitle style, Live format (ts) and regions.
 - [ ] L10b. The saved login still opens (it's read through the Keystore exactly as before): Settings → ACCOUNT shows the playlist; channels play.

@@ -8,6 +8,12 @@ Why the app is the way it is. Read this before changing behaviour, so settled qu
 
 | Version | Decision | Reason |
 |---|---|---|
+| 3.1 | **3.1 is Windows (Microsoft Store) and Mac (DMG, Apple silicon only)**; Mac notarization waits for the Apple Developer Program | Ashwin has the Store account; no Apple account yet; his Mac is Apple silicon |
+| 3.1 | **Screens shared by compiling `ui-tv/` into both apps** (Android with Google's Compose, desktop with JetBrains' Compose), not a Kotlin Multiplatform module yet. Platform needs go through `Platform.app` and same-named hooks in each app | Both apps are on the JVM, so this needs no new build system and keeps the TV exactly as it was. The shared folder becomes a KMP module when iPhone/iPad arrive (3.2) |
+| 3.1 | **The TV keeps androidx.tv Material for focus rows, cards and text**; the desktop has its own versions with the same look | Zero visual change on the TV |
+| 3.1 | **Desktop video through our own libVLC 3 binding (JNA), frames drawn by Compose** | MIT licence (no vlcj); drawing frames ourselves lets the info bar and buttons sit on top of the video, which a native video window wouldn't |
+| 3.1 | **Desktop accepts weaker error detail than the TV** (no HTTP codes from libVLC, so no connection-limit retries; VLC's own subtitle style) | Getting the desktop app out first; improve later |
+| 3.1 | **A desktop smoke test in CI** starts the app on a virtual screen and plays a test video through libVLC | Desktop changes can't be tried by hand on every build |
 | 3.0 | **One Kotlin codebase for Google TV, Windows, Mac, iPhone and iPad**: core logic shared everywhere; player per platform (ExoPlayer, libVLC, VLCKit); TV-style UI for Google TV, Windows and Mac; a touch UI for iPhone and iPad | Ashwin's plan (2026-11-01). Apple's player can't play `.ts` live streams or `.mkv` movies, so Apple devices use VLC's engine |
 | 3.0 | **Licence stays MIT; Windows and Mac use our own small libVLC binding** instead of vlcj | vlcj is GPL, and the GPL is widely considered incompatible with App Store terms. libVLC and VLCKit are LGPL. Reverses the earlier GPL + vlcj choice |
 | 3.0 | **Mac: notarized download first**, Mac App Store later. Windows: Microsoft Store | Ashwin's choice |
@@ -100,6 +106,7 @@ Why the app is the way it is. Read this before changing behaviour, so settled qu
 24. **Turning on R8 needs its own check on the TV.** Shrinking can remove code reached only by reflection; build it as a separate step and run the acceptance list.
 21. **Never move focus from an effect keyed on data.** `LaunchedEffect(channels) { requestFocus() }` in the channel list fired every time the Groups pane changed the group, so focus jumped panes (the 2.6 bug). Move focus only on an explicit user action or on first entry.
 22. **When a key opens a dialog on long press, open it on the key's release.** Otherwise the release (and repeats) arrive in the dialog and can press its first row.
+28. **PowerShell's `-replace` ignores case.** Replacing `VERSION` also changed `version="1.0"` in the XML header and broke the MSIX manifest. Use `-creplace` and a placeholder that can't occur naturally (`@VERSION@`).
 27. **A shared module must not be able to see the platform.** Making core a plain JVM module (not an Android library) means any `android.*` import fails the build, instead of being found when the desktop app is built.
 25. **One-connection plans need the old stream closed, not just replaced.** Swapping the media item left a kept-alive socket in the OkHttp pool that the provider could still count (HTTP 458). Stop the player and evict idle connections before opening the next stream.
 26. **Measure what you mean.** A timing that includes no-op cases (same channel, retries) makes the average look better than reality. Exclude them and log them separately.

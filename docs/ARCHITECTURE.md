@@ -27,6 +27,20 @@ How the app is built: the stack, the code layout, the data, storage, and the rel
 | Kotlin JVM plugin (core, since 3.0) | 2.0.20 |
 
 - Compiler flags: `-opt-in=androidx.tv.material3.ExperimentalTvMaterial3Api` and `-opt-in=androidx.compose.foundation.ExperimentalFoundationApi`.
+
+**Desktop (3.1, `apps/desktop`)**
+| Piece | Version |
+|---|---|
+| Compose Multiplatform (Gradle plugin `org.jetbrains.compose`) | 1.7.0 |
+| lifecycle-viewmodel-compose (JetBrains) | 2.8.3 |
+| kotlinx-coroutines-swing | 1.8.1 |
+| Coil 3 (`coil-compose`, `coil-network-okhttp`) | 3.0.4 |
+| JNA + jna-platform | 5.15.0 |
+| libVLC (bundled by CI: win64 zip, macOS arm64 DMG) | 3.0.21 |
+| NanoHTTPD / ZXing / org.json | 2.3.1 / 3.5.3 / 20240303 |
+- Packaging: `createDistributable` (jpackage app image with a Java 17 runtime). Version `<major>.<minor>.<build>`; MSIX `<major>.<minor>.<build>.0`. libVLC goes to `apps/desktop/resources/<os>/vlc` (`appResourcesRootDir`), plugins minus gui, lua, visualization, video_splitter and services_discovery.
+- `VlcEngine`: libVLC video callbacks (`RV32`, one buffer) copy each frame; `PlayerSurface` draws the newest one with Skia, fitted on black. Control calls run in order on one background thread (libVLC's stop blocks); state is polled every 100 ms on the UI thread and turned into `PlayerListener` events. Media options: `http-user-agent`, `network-caching=1000`, `live-caching=1000`, `start-time`. libVLC gives no HTTP codes: errors arrive as `PError(null, "VLC_ERROR")`.
+- `VlcLoader` looks in the app's resources, then `resources/<os>/vlc` (development), then an installed VLC. On the Mac it sets `VLC_PLUGIN_PATH` and loads `libvlccore` first.
 - **R8 since 2.8**: `isMinifyEnabled = true`, `isShrinkResources = true`, `proguard-android-optimize.txt` + `apps/android-tv/proguard-rules.pro`. **`-dontobfuscate`**: names stay readable for crash reports (AppLog finds the app's lines by "com.sparky") and the activity log. The libraries ship their own keep rules; NanoHTTPD and OkHttp's optional TLS providers only need `-dontwarn`. `DebugProbesKt.bin` and `kotlin-tooling-metadata.json` are excluded. Lint does not fail the build. `gradle.properties` sets `-Xmx3g`, AndroidX and non-transitive R.
 - No Jetpack Navigation, Room or Hilt. The app keeps its own small screen stack, SharedPreferences, and a hand-written binary cache.
 
@@ -45,15 +59,27 @@ How the app is built: the stack, the code layout, the data, storage, and the rel
 
 ## 3. Code layout (`com.sparky.iptv`)
 
-### 3.0 Repository layout (since 3.0)
+### 3.0 Repository layout (since 3.1)
 ```
-core/                 shared code, plain Kotlin/JVM (no Android): the data/ package below, plus Platform.kt
+core/                 shared logic, plain Kotlin/JVM (no Android): the data/ package below, plus Platform.kt
                       (KeyValueStore, SecretStore, MemoryStore, B64). Unit tests in core/src/test run on every build.
-apps/android-tv/      the Google TV app: MainActivity, platform/, player/, setup/, ui/, assets, res
+ui-tv/                shared screens, view model, phone pages and player rules (packages ui/, setup/, player/),
+                      compiled into both apps as a source folder (not a Gradle module)
+apps/android-tv/      the Google TV app: MainActivity, platform/, player/ExoEngine + SubStyleAndroid,
+                      ui/components/TvMaterial + AndroidPieces, ui/platform/AndroidHooks, assets, res
                       (applicationId com.sparky.iptv and the signing key are unchanged)
+apps/desktop/         Windows and Mac: desktop/Main, DesktopPlatform (FileStore, DPAPI, Keychain), Vlc (binding +
+                      VlcEngine), ui/components/DesktopComponents, ui/platform/DesktopHooks, packaging/
 docs/                 these documents
 ```
-- Planned (see DECISIONS 3.0): `player/` (a player interface; ExoPlayer, libVLC, VLCKit), `ui-shared/`, `ui-tv/`, `ui-touch/`, `apps/desktop/` (Windows + Mac) and `apps/ios/` (iPhone + iPad). They are split out when their second user arrives (3.1 desktop, 3.2 iOS), so each split can be tested.
+- Planned (DECISIONS 3.0/3.1): `ui-touch/` and `apps/ios/` (iPhone + iPad, 3.2), when `ui-tv/` and `core/` become Kotlin Multiplatform modules.
+- **How the shared screens reach the platform (3.1):**
+  - `Platform.app: AppPlatform` (ui-tv `ui/platform/AppPlatform.kt`): files and cache folders, the settings store, online check, version, device line and name, local IP, assets, exit, and the self-update calls (`selfUpdates` false on desktop). Set first thing at start.
+  - `PlayerHolder` (ui-tv `player/`) keeps the 2.5–2.9 rules (one stream, close the old one first, `held`, `generation`) and asks `PlayerHolder.factory` for a `PlayerEngine`: `ExoEngine` (Android) or `VlcEngine` (desktop). Screens use `PState`, `TrackType`, `PError` and `PlayerListener` instead of media3 types.
+  - **Same-named hooks in each app** (the shared code calls them by name): in `com.sparky.iptv.ui.platform`: `KeyEvent.tv(): TvKey`, `BackHandler`, `painterRes(id)`; in `com.sparky.iptv.ui.components`: `T`, `Inter`, `FocusItem`, `FocusCard`, `SparkyTheme`, `RichText`, `RemoteImage`, `PlayerSurface`, `SubtitleSample`. Adding a hook means adding it to both apps.
+  - Keys: `AKey` (Android's key codes) and `TvKey(keyCode, action, repeatCount, eventTime, downTime)` in ui-tv. Android builds it from the native event; the desktop maps keyboard keys and counts repeats itself (one count per event, even when several handlers see it).
+  - Resources: the desktop copies the Android app's `res/drawable*`, `res/font` and `assets` at build time and generates an `R` object with the same names (`genR`), so `R.drawable.ic_star` works in shared code.
+  - `Qr.bitmap` draws with Compose; `Net.localIp()` asks the platform, then the network interfaces.
 - **The core module can't see Android.** Anything that needs the device goes through an interface the app provides:
   - `KeyValueStore` (settings; Android: `SharedPrefsStore` over `SharedPreferences "sparky"`, same keys as before).
   - `SecretStore` (the saved login; Android: `KeystoreSecrets`, the same Keystore key and `v1:` format as 2.8). `AndroidPlatform.store()` installs it before `Prefs` is created.
@@ -321,8 +347,9 @@ Lists that mix focusable rows with non-focusable headings (guide grid, Live TV c
 
 - **GitHub Actions** (`.github/workflows/build.yml`) runs on every push to `main` (doc-only pushes are ignored) and on manual dispatch:
   1. Checkout, then setup-java temurin 17, then setup-gradle, then restore the signing key from secrets.
+  0. (3.1) Jobs: **android** (below), **windows** (bundle libVLC, `createDistributable`, portable ZIP, MSIX with `makeappx` from `packaging/windows/AppxManifest.xml` with `@VERSION@` filled in, and its Assets), **mac** (macos-14: bundle libVLC, `createDistributable`, `codesign --force --deep --sign -`, DMG with an Applications link), **smoke** (Linux: starts the app under Xvfb and plays an ffmpeg test video with `SPARKY_DEMO_VIDEO`; fails if it doesn't start or libVLC doesn't load), and **release** (needs android; attaches whichever desktop files were built).
   2. `./gradlew --no-daemon :core:test :apps:android-tv:assembleRelease` (3.0: the core tests run first; the APK is `apps/android-tv/build/outputs/apk/release/android-tv-release.apk`, named after the module). On failure, the `e: `, "What went wrong" and failed-test lines are re-emitted as `::error::` annotations, because raw logs can't be downloaded without auth.
-  3. Copy to `sparky-iptv.apk`, write `sparky-iptv.apk.sha256`, and publish both in a GitHub release `build-<run_number>` marked latest. Also upload it as an artifact.
+  3. Copy to `sparky-iptv.apk` and write `sparky-iptv.apk.sha256`; the release job publishes them with `sparky-iptv-windows-x64.zip`, `sparky-iptv-windows-x64.msix` and `sparky-iptv-mac-arm64.dmg` in a GitHub release `build-<run_number>` marked latest. The TV's updater only takes the `.apk`.
 - `versionCode = GITHUB_RUN_NUMBER`; `versionName = "<appVersion> (build N)"`. The release is signed with the key from the GitHub Actions secrets `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` (debug builds too), so each build installs over the last. The workflow decodes the key to `$RUNNER_TEMP/release.jks` and passes `KEYSTORE_PATH` and the passwords to Gradle as environment variables. Without the secrets the build fails with an `::error::` annotation. Keep an offline backup of the keystore: if it is lost, every device needs an uninstall and reinstall.
 - **Install**: the Downloader app, code **6976634** → `https://github.com/ashwin-mathias/couch-lab/releases/latest/download/sparky-iptv.apk`. After that, use in-app updates.
 - **Release checklist**: bump `appVersion`; add a `changelog.json` entry (newest first, `{version, date YYYY-MM-DD, title, notes[]}`); update README controls if keys changed; update docs/ if behaviour changed; commit; push; watch the build; if it fails, read the annotations with `gh api repos/.../check-runs/<id>/annotations`.

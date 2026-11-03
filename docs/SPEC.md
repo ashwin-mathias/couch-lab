@@ -1,6 +1,6 @@
 # Sparky IPTV — Product specification
 
-Version described: **3.0** (November 2026). 3.0 changes no behaviour; it moves the shared code into `core/` (ARCHITECTURE §3). This file says **what the app does**. How it looks is in [DESIGN.md](DESIGN.md), how it's built in [ARCHITECTURE.md](ARCHITECTURE.md), and how to prove it works in [ACCEPTANCE.md](ACCEPTANCE.md).
+Version described: **3.1** (November 2026). 3.1 adds the Windows and Mac app (§21); the Google TV app is unchanged. This file says **what the app does**. How it looks is in [DESIGN.md](DESIGN.md), how it's built in [ARCHITECTURE.md](ARCHITECTURE.md), and how to prove it works in [ACCEPTANCE.md](ACCEPTANCE.md).
 
 Words used: in quoted on-screen text, `␣` marks a space that must be kept (hint lines use three spaces around each `·`; meta lines join with `   ·   `). **must** = required; **should** = strong default. "OK" = the remote's centre button. ◀ ▶ ▲ ▼ = D-pad. "Hold OK" = press longer than 600 ms.
 
@@ -565,3 +565,44 @@ The player screen always holds focus and handles every key itself. The stock Exo
 - Google TV home-screen "Continue watching" integration (discussed and deferred).
 - Multiple playlists or profiles, parental controls, recording, external EPG (XMLTV), and multi-view.
 - An iOS version (discussed; open questions remain).
+
+## 21. Windows and Mac (3.1)
+The desktop app is the same app as on the TV: the same screens, texts, rules and storage keys. This section lists only what differs.
+
+### 21.1 Platforms and delivery
+- **Windows 11 x64**: the Microsoft Store (identity `AshwinMathias.SparkyIPTV`, Store ID `9P01WT4DC59W`), which updates it. Each build also publishes a portable ZIP for testing.
+- **Mac (Apple silicon)**: a DMG, ad-hoc signed, not notarized yet. The first open needs System Settings → Privacy & Security → Open Anyway. Updates are manual (download the newest DMG).
+- No in-app updater: Settings → Version shows the version; OK on it shows the toast "Updates come from the store".
+
+### 21.2 Window
+- A resizable window, 1280 × 760 at first, titled "Sparky IPTV". The TV layout (960 × 540 design units) is scaled to fill it, letterboxed to 16:9 on black.
+- **F11** toggles full screen; **Esc** in full screen with nothing to go back to returns to the window.
+- Closing the window stops playback and closes the stream.
+
+### 21.3 Keyboard and mouse
+| Key | Remote key |
+|---|---|
+| Arrows | D-pad |
+| Enter, keypad Enter | OK (held over 600 ms = hold OK) |
+| Esc | Back (on release) |
+| Space | Play / pause |
+| Page Up / Page Down | CH+ / CH− |
+| M | Menu (audio & subtitles) |
+| L | Last channel |
+| Media keys | Play/pause, rewind, fast-forward, next |
+- Held keys repeat like a held remote key (the repeat count drives faster seeking and list scrolling).
+- **Mouse**: hovering an item focuses it; a click is OK; pressing and holding is hold OK. The scroll wheel scrolls lists.
+
+### 21.4 Playback
+- Video plays through **libVLC 3.0.21**, bundled with the app (our own binding; the app stays MIT).
+- Start buffering: about 1 s for network streams (VLC's `network-caching` and `live-caching`).
+- **Connection limit**: libVLC doesn't report HTTP codes, so a refused stream shows as a general error ("This channel isn't playing right now (VLC_ERROR)"), without the §7.9 retries. The TV keeps the full behaviour.
+- **Subtitles** are drawn by VLC in its own style; the Subtitle style setting applies to the TV. The style screen's preview shows the chosen colours.
+- Audio and subtitle tracks are named from VLC's description ("English", or "Track 2"); choices are remembered by that name.
+
+### 21.5 Storage and login
+- Settings: `settings.json` in `%LOCALAPPDATA%\Sparky IPTV` (Windows) or `~/Library/Application Support/Sparky IPTV` (Mac), with the same keys as the TV.
+- The login is encrypted with **Windows DPAPI** (only this Windows user can read it) or an AES-256-GCM key in the **macOS Keychain**.
+- Setup uses the same phone page and QR code as the TV. The computer must be on the same network as the phone.
+- Backups made on the TV restore on a computer and the other way round.
+

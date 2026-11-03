@@ -326,6 +326,13 @@ Since 2.8 the PNGs are stored as **lossless WebP** (identical pixels, about a th
 - **Back up / Restore**: padding 112 × 64, like Setup: the title 40 Bold, the text 18 Muted (max 560 wide), numbered steps (number 14 Bold Dim in a 30 slot, text 17), the hint 14 Dim. Then an 80 gap and the QR column.
 - **QR column** (max 420 wide, spacing 16): a Label, the QR 260 on a `Text` tile (radius 18, padding 20), the text 15 Muted, and the hint 13 Dim.
 
+## 8.18 Windows and Mac (3.1)
+- The TV layout is drawn at its 960 × 540 design size and scaled to the window, letterboxed to 16:9 on black. Every size in this document holds.
+- Components without androidx.tv Material, matching the TV: a focused **FocusItem** fills with its focused colour (default `Text`) and scales by its `scale`; a focused **FocusCard** gets a 3-unit `Text` outline and scales to 1.06. Text uses the same Inter files and sizes.
+- The mouse moves focus on hover, so the look is the same as with the keyboard.
+- Window icon: `logo.webp`. Windows tiles and Store logo: `apps/desktop/packaging/windows/Assets` (44, 50, 150, 256 px squares and a 310 × 150 wide tile), made from `ic_launcher`. Windows `.ico` and Mac `.icns` in `apps/desktop/packaging/`.
+- The subtitle preview shows the chosen colours and size in the app's own text, since VLC draws the real subtitles.
+
 ## 9. Phone web pages (setup and diagnostics)
 
 - They are styled to match: background `#0E0F11`, text `#EEEBE5`, a system font stack, max width 440 (setup) or 760 (log).

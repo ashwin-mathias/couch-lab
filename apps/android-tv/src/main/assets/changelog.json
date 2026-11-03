@@ -1,5 +1,16 @@
 [
   {
+    "version": "3.1",
+    "date": "2026-11-03",
+    "title": "Sparky on Windows and Mac",
+    "notes": [
+      "New: Sparky IPTV for Windows 11, coming to the Microsoft Store, and for Macs with Apple silicon (a download for now).",
+      "It's the same app as on your TV: live TV, the guide, movies, series, favorites and backups. Use the arrow keys and Enter like the remote, Esc to go back, or the mouse.",
+      "A backup made on the TV restores on a computer, and the other way round.",
+      "On the TV, nothing changes: Sparky looks and works the same."
+    ]
+  },
+  {
     "version": "3.0",
     "date": "2026-11-01",
     "title": "Getting ready for Windows, Mac, iPhone and iPad",

@@ -7,7 +7,7 @@ plugins {
 // Every GitHub build gets a higher version so updates install over the old app.
 val buildNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
 // Bump this with each release and add a matching entry to app/src/main/assets/changelog.json.
-val appVersion = "3.0"
+val appVersion = "3.1"
 
 android {
     namespace = "com.sparky.iptv"
@@ -58,6 +58,12 @@ android {
             "-opt-in=androidx.tv.material3.ExperimentalTvMaterial3Api",
             "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
         )
+    }
+    // 3.1: the screens are shared with the desktop app (ui-tv/); compiled here with Android's Compose.
+    sourceSets {
+        getByName("main") {
+            java.srcDir("../../ui-tv/src/main/kotlin")
+        }
     }
     buildFeatures {
         compose = true

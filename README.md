@@ -1,6 +1,6 @@
 # Sparky IPTV
 
-A clean, minimal IPTV player for Google TV / Android TV (project name: Couch Lab).
+A clean, minimal IPTV player for Google TV / Android TV, Windows 11 and Mac (project name: Couch Lab).
 
 - **Live TV** with channel groups, favorites, live preview, and now/next info
 - **TV guide** grid
@@ -24,6 +24,31 @@ https://github.com/ashwin-mathias/couch-lab/releases/latest/download/sparky-iptv
 4. Open Downloader, type the code **6976634** (or the link above), and install.
 
 To update, repeat step 4. The code always points to the newest build. Your login and favorites are kept.
+
+## Install on Windows 11 (x64)
+
+- **Microsoft Store**: Sparky IPTV (Store ID `9P01WT4DC59W`, once published). The Store keeps it up to date.
+- **For testing**: download `sparky-iptv-windows-x64.zip` from the [latest release](https://github.com/ashwin-mathias/couch-lab/releases/latest), unzip it anywhere, and run `Sparky IPTV.exe`. If Windows asks about network access, allow it on private networks (it's for the phone setup page).
+
+## Install on Mac (Apple Silicon)
+
+1. Download `sparky-iptv-mac-arm64.dmg` from the [latest release](https://github.com/ashwin-mathias/couch-lab/releases/latest), open it, and drag **Sparky IPTV** to **Applications**.
+2. The first time you open it, macOS says it can't verify the app (it isn't notarized yet). Open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway**. After that it opens normally.
+3. To update, download the newest DMG and replace the app. Your login and favorites are kept.
+
+## Keyboard and mouse (Windows and Mac)
+
+| Key | Does |
+|---|---|
+| Arrows | Move, like the remote's D-pad |
+| Enter | OK (hold for a second = hold OK, e.g. add a favorite) |
+| Esc | Back (also leaves full screen) |
+| Space | Play / pause |
+| Page Up / Page Down | Next / previous channel |
+| M | Audio & subtitles |
+| L | Last channel |
+| F11 | Full screen on / off |
+| Mouse | Hover to move focus, click to select, press and hold for the long press |
 
 ## Remote controls
 
