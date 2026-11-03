@@ -14,3 +14,78 @@ jobs:
           chmod +x gradlew
           ./gradlew --no-daemon :core:test :apps:desktop:compileKotlin :apps:android-tv:assembleRelease 2>&1 | tee build.log; status=${PIPESTATUS[0]}
           if [ $status -ne 0 ]; then grep -E "^e: |What went wrong|FAILED|ERROR:|Missing class" -A3 build.log | head -80 | while IFS= read -r line; do echo "::error::$line"; done; exit $status; fi
+
+  windows:
+    runs-on: windows-latest
+    defaults: { run: { shell: pwsh } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Bundle libVLC
+        run: |
+          $v = "3.0.21"
+          curl.exe -sSL -o vlc.zip "https://get.videolan.org/vlc/$v/win64/vlc-$v-win64.zip"
+          Expand-Archive vlc.zip -DestinationPath vlcx
+          $src = Get-ChildItem vlcx -Directory | Select-Object -First 1
+          $dst = "apps/desktop/resources/windows/vlc"
+          New-Item -ItemType Directory -Force $dst | Out-Null
+          Copy-Item "$($src.FullName)/libvlc.dll","$($src.FullName)/libvlccore.dll" $dst
+          Copy-Item "$($src.FullName)/plugins" $dst -Recurse
+          foreach ($d in "gui","lua","visualization","video_splitter","services_discovery") { Remove-Item "$dst/plugins/$d" -Recurse -Force -ErrorAction SilentlyContinue }
+          "{0:N1} MB" -f ((Get-ChildItem $dst -Recurse | Measure-Object Length -Sum).Sum / 1MB)
+      - name: Build the app
+        run: ./gradlew --no-daemon :apps:desktop:createDistributable
+      - name: Package (portable ZIP + MSIX)
+        run: |
+          $app = "apps/desktop/build/compose/binaries/main/app/Sparky IPTV"
+          Get-ChildItem $app | Format-Table Name
+          Compress-Archive -Path $app -DestinationPath sparky-iptv-windows-x64.zip
+          $ver = "3.1.$env:GITHUB_RUN_NUMBER.0"
+          (Get-Content apps/desktop/packaging/windows/AppxManifest.xml) -replace 'VERSION', $ver | Set-Content "$app/AppxManifest.xml"
+          Copy-Item apps/desktop/packaging/windows/Assets "$app/Assets" -Recurse
+          $makeappx = Get-ChildItem "C:/Program Files (x86)/Windows Kits/10/bin/*/x64/makeappx.exe" | Sort-Object FullName | Select-Object -Last 1
+          & $makeappx.FullName pack /d $app /p sparky-iptv-windows-x64.msix /o
+          Get-ChildItem *.zip,*.msix | Format-Table Name,Length
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            sparky-iptv-windows-x64.zip
+            sparky-iptv-windows-x64.msix
+
+  mac:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Bundle libVLC
+        run: |
+          v=3.0.21
+          curl -sSL -o vlc.dmg "https://get.videolan.org/vlc/$v/macosx/vlc-$v-arm64.dmg"
+          hdiutil attach -nobrowse -mountpoint /tmp/vlcmnt vlc.dmg
+          dst=apps/desktop/resources/macos-arm64/vlc
+          mkdir -p $dst
+          cp -a /tmp/vlcmnt/VLC.app/Contents/MacOS/lib/. $dst/
+          cp -a /tmp/vlcmnt/VLC.app/Contents/MacOS/plugins $dst/plugins
+          hdiutil detach /tmp/vlcmnt
+          for d in gui lua visualization video_splitter services_discovery; do rm -rf $dst/plugins/$d; done
+          ls $dst; du -sh $dst
+      - name: Build the app
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon :apps:desktop:createDistributable
+      - name: Sign (ad hoc) and make the DMG
+        run: |
+          app="apps/desktop/build/compose/binaries/main/app/Sparky IPTV.app"
+          codesign --force --deep --sign - "$app"
+          mkdir dmg && cp -a "$app" dmg/ && ln -s /Applications dmg/Applications
+          hdiutil create -volname "Sparky IPTV" -srcfolder dmg -ov -format UDZO sparky-iptv-mac-arm64.dmg
+          ls -la *.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          path: sparky-iptv-mac-arm64.dmg
