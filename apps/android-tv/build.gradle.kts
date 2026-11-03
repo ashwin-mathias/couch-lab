@@ -59,6 +59,12 @@ android {
             "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
         )
     }
+    // 3.1: the screens are shared with the desktop app (ui-tv/); compiled here with Android's Compose.
+    sourceSets {
+        getByName("main") {
+            java.srcDir("../../ui-tv/src/main/kotlin")
+        }
+    }
     buildFeatures {
         compose = true
     }
