@@ -86,6 +86,7 @@ fun DiagnosticsScreen(vm: AppViewModel) {
                     "Channel switch: average %.1f s (last %d)".format(sw.average() / 1000.0, sw.size) +
                         (if (st.isNotEmpty()) " · stream %.1f s".format(st.average() / 1000.0) else "")
                 )
+                vm.slowSwitchSummary()?.let { appendLine(it) }
                 vm.formatTest?.let { appendLine(it) }
                 appendLine(vm.connLimitSummary())
                 val pm = vm.prefs.pauseNoCatchupMax
@@ -137,7 +138,7 @@ fun DiagnosticsScreen(vm: AppViewModel) {
                 else T("No Wi-Fi", size = 16, color = C.Dim)
             }
             if (url != null) T("Scan with your phone's camera", size = 13, color = C.Dim)
-            T(remember(refreshTick, vm.catchupTest, vm.formatTest, vm.switchTimes.size, vm.connLimitHits) { header().trim() }, size = 12, color = C.Dim, maxLines = 16, lineHeight = 1.4f)
+            T(remember(refreshTick, vm.catchupTest, vm.formatTest, vm.switchTimes.size, vm.recentSwitches.size, vm.connLimitHits) { header().trim() }, size = 12, color = C.Dim, maxLines = 18, lineHeight = 1.4f)
             Spacer(Modifier.weight(1f))
             Row(horizontalArrangement = Arrangement.spacedBy(12.u)) {
                 PillButton(if (vm.catchupTest == "Testing…") "Testing…" else "Test catch-up") { vm.testCatchup() }

@@ -8,6 +8,9 @@ Why the app is the way it is. Read this before changing behaviour, so settled qu
 
 | Version | Decision | Reason |
 |---|---|---|
+| 3.1.1 | **Movies and series are read after the channels again** (the faster reader stays) | Ashwin agreed the 2.9 rule: Home stayed above 5 s on 5 of 8 starts with parallel reading (20 Nov log) |
+| 3.1.1 | **Switch log splits connect / first byte / first frame and counts slow switches; no behaviour change** | 1 in 5 switches took 4–5 s with no way to tell provider from app |
+| 3.1.1 | **Format test gets an uncounted warm-up; a decoder that fails to start gets one retry** | Ashwin included both (items 5 and 6 of the patch plan) |
 | 3.1 | **3.1 is Windows (Microsoft Store) and Mac (DMG, Apple silicon only)**; Mac notarization waits for the Apple Developer Program | Ashwin has the Store account; no Apple account yet; his Mac is Apple silicon |
 | 3.1 | **Screens shared by compiling `ui-tv/` into both apps** (Android with Google's Compose, desktop with JetBrains' Compose), not a Kotlin Multiplatform module yet. Platform needs go through `Platform.app` and same-named hooks in each app | Both apps are on the JVM, so this needs no new build system and keeps the TV exactly as it was. The shared folder becomes a KMP module when iPhone/iPad arrive (3.2) |
 | 3.1 | **The TV keeps androidx.tv Material for focus rows, cards and text**; the desktop has its own versions with the same look | Zero visual change on the TV |
@@ -110,6 +113,8 @@ Why the app is the way it is. Read this before changing behaviour, so settled qu
 27. **A shared module must not be able to see the platform.** Making core a plain JVM module (not an Android library) means any `android.*` import fails the build, instead of being found when the desktop app is built.
 25. **One-connection plans need the old stream closed, not just replaced.** Swapping the media item left a kept-alive socket in the OkHttp pool that the provider could still count (HTTP 458). Stop the player and evict idle connections before opening the next stream.
 26. **Measure what you mean.** A timing that includes no-op cases (same channel, retries) makes the average look better than reality. Exclude them and log them separately.
+29. **Time against the right event.** A first-frame callback can come from the stream you are leaving. Only count it after the new stream was actually opened (the 0.1 s "switches" in the 3.1 log).
+30. **An "only once" guard can hide a restart.** `AppLog.init` returned early when Android reopened the app in the same process, so the log showed channels loading with no "App started". Log the restart instead of skipping.
 20. **On TV, never rely on the default ▲/▼ focus search across non-focusable rows in a lazy list.** Headings between rows, and rows that aren't composed yet, make it jump to a far cell, a header pill or another row (the 2.5 guide bug). Scroll to the target first, then request focus on it (`ListNav`).
 
 ## Known limitations (accepted)

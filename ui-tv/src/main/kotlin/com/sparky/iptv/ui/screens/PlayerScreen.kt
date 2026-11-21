@@ -121,7 +121,11 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
     // Channel switch timing.
     var switchStartedAt by remember { mutableLongStateOf(0L) }
     var streamStartedAt by remember { mutableLongStateOf(0L) }   // after the 300 ms settle wait
-    var switchRetried by remember { mutableStateOf(false) }      // retried or changed format: not timed
+    var switchRetries by remember { mutableIntStateOf(0) }       // retries or a format change: kept out of the average
+    var awaitingFrame by remember { mutableStateOf(false) }      // 3.1.1: a new stream was opened for this switch
+    // Decoder couldn't start (3.1.1): stop the player (frees the decoder), then one more try after 300 ms.
+    var decoderRetried by remember { mutableStateOf(false) }
+    var decoderRetryFor by remember { mutableStateOf<String?>(null) }   // channel id waiting for that retry
     var firstPlay by remember { mutableStateOf(true) }
 
     val ch = channels[index]
@@ -144,7 +148,12 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
         barVisible = true
         barTick++
     }
+    /** 3.1.1: a pause that ends without Resume (Go live, changing channel) is logged too. */
+    fun logPauseEnd(how: String) {
+        if (paused) com.sparky.iptv.data.AppLog.i("Pause ended on channel ${ch.num} after ${(wallNow() - pausedAt) / 1000} s ($how)")
+    }
     fun goLive() {
+        logPauseEnd("went live")
         shiftStart = null
         paused = false
         seekTarget = null
@@ -176,6 +185,11 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
             shiftStart != null -> {
                 player.playWhenReady = !player.playWhenReady
                 paused = !player.playWhenReady
+                if (paused) pausedAt = wallNow()
+                com.sparky.iptv.data.AppLog.i(
+                    if (paused) "Paused catch-up on channel ${ch.num}"
+                    else "Resumed catch-up on channel ${ch.num} after ${(wallNow() - pausedAt) / 1000} s"
+                )
             }
             !paused -> {
                 player.playWhenReady = false
@@ -184,7 +198,10 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
                 com.sparky.iptv.data.AppLog.i("Paused live on channel ${ch.num}${if (canShift) " (catch-up)" else " (no catch-up)"}")
             }
             // Resume a live pause: from the recording if it's been a while, else straight on.
-            canShift && wallNow() - pausedAt > 15_000 -> startShift(pausedAt)
+            canShift && wallNow() - pausedAt > 15_000 -> {
+                com.sparky.iptv.data.AppLog.i("Resumed live on channel ${ch.num} after ${(wallNow() - pausedAt) / 1000} s (from the recording)")
+                startShift(pausedAt)
+            }
             else -> {
                 paused = false
                 resumedLiveAt = wallNow()
@@ -206,6 +223,7 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
     }
     fun switchTo(i: Int) {
         if (i == index) return
+        logPauseEnd("changed channel")
         previous = index
         index = i
         shiftStart = null
@@ -247,7 +265,9 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
         connTry = 0
         connWaiting = false
         connBlocked = false
-        switchRetried = false
+        switchRetries = 0
+        decoderRetried = false
+        awaitingFrame = false
         resumePending = false
         vm.ensureEpg(ch)
         showInfo = true
@@ -255,9 +275,21 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
         if (!firstPlay) delay(300)
         firstPlay = false
         streamStartedAt = com.sparky.iptv.ui.components.elapsedMs()
-        // Same channel still playing (for example back to the preview's channel): nothing to time.
-        if (!PlayerHolder.play(ch.url)) switchStartedAt = 0L
+        // Same channel still playing (for example back to the preview's channel): nothing to time (3.1.1: logged as such).
+        if (PlayerHolder.play(ch.url)) awaitingFrame = true
+        else {
+            if (switchStartedAt > 0) vm.recordAlreadyPlaying()
+            switchStartedAt = 0L
+        }
         vm.prefs.lastChannel = ch.id
+    }
+    LaunchedEffect(decoderRetryFor) {
+        val id = decoderRetryFor ?: return@LaunchedEffect
+        delay(300)
+        decoderRetryFor = null
+        // Only if the viewer is still on that channel, live.
+        val now = channels[index]
+        if (now.id == id && shiftStart == null) PlayerHolder.play(now.url, force = true)
     }
     // Connection limit: wait, then try the channel again. Leaving the channel cancels this.
     LaunchedEffect(ch.id, connTry, connWaiting) {
@@ -364,11 +396,20 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
                     vm.toast = "This channel can't pause that long — back to live"
                     return
                 }
+                // The video decoder couldn't start (seen once, 4 Nov 2026): free it and try once more (3.1.1).
+                if (e.errorCodeName.contains("DECODER_INIT_FAILED") && !decoderRetried) {
+                    decoderRetried = true
+                    switchRetries++
+                    com.sparky.iptv.data.AppLog.w("Channel ${ch.num}: decoder didn't start ($detail); retrying in 0.3 s")
+                    PlayerHolder.stop()
+                    decoderRetryFor = ch.id
+                    return
+                }
                 // Too many connections: the provider may still be counting the stream we just closed,
                 // or another device is watching. Try 3 more times (3 s, 6 s, 10 s), then explain (2.9).
                 if (PlaybackErrors.isConnectionLimit(e)) {
                     vm.noteConnLimit()
-                    switchRetried = true
+                    switchRetries++
                     if (connTry < 3) {
                         connTry++
                         val wait = PlaybackErrors.CONNECTION_RETRY_MS[connTry - 1]
@@ -387,7 +428,7 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
                 // Some providers only serve one of HLS / MPEG-TS; try the other once (not for login or connection limits).
                 if (!triedFallback && !PlaybackErrors.isAccountProblem(e)) {
                     triedFallback = true
-                    switchRetried = true
+                    switchRetries++
                     val alt = when {
                         ch.url.endsWith(".m3u8") -> ch.url.removeSuffix(".m3u8") + ".ts"
                         ch.url.endsWith(".ts") -> ch.url.removeSuffix(".ts") + ".m3u8"
@@ -428,12 +469,17 @@ private fun LivePlayer(vm: AppViewModel, req: PlayRequest.Live) {
                 if (state == PState.ENDED && shiftStart != null) startShift(watchedTime())
             }
             override fun onRenderedFirstFrame() {
-                if (switchStartedAt > 0) {
+                // 3.1.1: only the new stream's first frame counts. A frame from the old stream during the
+                // 300 ms settle wait used to be timed as a 0.1 s switch (and the real switch went unlogged).
+                if (switchStartedAt > 0 && awaitingFrame) {
                     val t = com.sparky.iptv.ui.components.elapsedMs()
+                    val st = PlayerHolder.current()?.startTimings()
+                    val split = st?.takeIf { it.openedAt in 1..t && it.connectedAt >= it.openedAt && it.firstByteAt >= it.connectedAt && it.connectedAt > 0 }
+                        ?.let { Triple(it.connectedAt - it.openedAt, it.firstByteAt - it.connectedAt, t - it.firstByteAt) }
                     // Switches that needed a retry are logged but kept out of the average (2.9).
-                    if (switchRetried) com.sparky.iptv.data.AppLog.i("Channel switch: %.1f s (after a retry)".format((t - switchStartedAt) / 1000.0))
-                    else vm.recordSwitch(t - switchStartedAt, t - streamStartedAt.coerceAtLeast(switchStartedAt))
+                    vm.recordSwitch(t - switchStartedAt, t - streamStartedAt.coerceAtLeast(switchStartedAt), split, switchRetries)
                     switchStartedAt = 0L
+                    awaitingFrame = false
                 }
             }
             override fun onTracksChanged() {

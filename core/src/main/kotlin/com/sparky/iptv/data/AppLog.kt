@@ -39,11 +39,17 @@ object AppLog {
      * "Google Chromecast · Android 14"; [version] like "3.0 (build 24)" (3.0: passed in by the app).
      */
     fun init(dir: File, device: String, version: String?) {
-        if (logFile != null) return
+        // 3.1.1: the app opened again while Android kept it in memory (it skipped this line before,
+        // so the log showed channels loading without "App started").
+        if (logFile != null) { i("App started · $device · restored"); return }
         versionName = version
         logFile = File(dir, "app_log.txt")
         crashFile = File(dir, "last_crash.txt")
-        synchronized(this) { trimFile() }
+        synchronized(this) {
+            trimFile()
+            // 3.1.1: no second date line when the app starts again on the same day.
+            lastDay = logFile?.takeIf { it.exists() && it.length() > 0 }?.let { dayKey.format(Date(it.lastModified())) } ?: ""
+        }
         installCrashHandler(dir)
         i("App started · $device")
     }

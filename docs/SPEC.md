@@ -1,6 +1,6 @@
 # Sparky IPTV — Product specification
 
-Version described: **3.1** (November 2026). 3.1 adds the Windows and Mac app (§21); the Google TV app is unchanged. This file says **what the app does**. How it looks is in [DESIGN.md](DESIGN.md), how it's built in [ARCHITECTURE.md](ARCHITECTURE.md), and how to prove it works in [ACCEPTANCE.md](ACCEPTANCE.md).
+Version described: **3.1.1** (November 2026). 3.1 adds the Windows and Mac app (§21); 3.1.1 tunes startup, channel switch timing and the log. This file says **what the app does**. How it looks is in [DESIGN.md](DESIGN.md), how it's built in [ARCHITECTURE.md](ARCHITECTURE.md), and how to prove it works in [ACCEPTANCE.md](ACCEPTANCE.md).
 
 Words used: in quoted on-screen text, `␣` marks a space that must be kept (hint lines use three spaces around each `·`; meta lines join with `   ·   `). **must** = required; **should** = strong default. "OK" = the remote's centre button. ◀ ▶ ▲ ▼ = D-pad. "Hold OK" = press longer than 600 ms.
 
@@ -75,7 +75,7 @@ Later launches ──────────────► Loading (saved copy
 ### 5.2 Later loads (saved copy)
 - One step, "Opening your saved channels", with a percentage read from the saved file.
 - **Live channels load first and Home opens immediately.** Movies and series load in the background. While they load, Movies, Series and Home's "Recently added" row show "Loading movies… Movies 40%".
-  - (2.9) Movies and series are read **at the same time as the channels**, not after Home opens, so they're ready about as soon as Home is. The saved files are read with a faster reader (same file format).
+  - (2.9) The saved files are read with a faster reader (same file format). 2.9 also read movies and series at the same time as the channels; (3.1.1) they are read **after the channels again**, because reading both at once kept Home above 5 s on most first starts of the day on the Chromecast.
   - The log records "Startup: Home in 3.2 s" and "Startup: movies and series in 4.1 s", timed from the start of loading.
 - If a fresh download finished meanwhile, the background load must not overwrite it.
 - After opening, the app checks for an app update, shows the Regions prompt if it's due, and runs the daily refresh if due.
@@ -186,7 +186,10 @@ Paused or behind live (§7.7):
   - The player starts after about **0.5 s** of buffered video (2.9; was 1 s), and 2 s after a stall.
   - (2.9) **The old stream is closed fully before the next one opens**: the player stops, and idle kept-open connections to the provider are closed, so the provider doesn't count the old channel as still watching.
   - Each switch's time, from key press to first picture, is logged, and Diagnostics shows the average of the last 10. The target is under 2 s.
-  - (2.9) **Honest timing**: a return to the channel already playing isn't timed (no stream opened). The time after the 300 ms settle wait is shown separately as "stream". A switch that needed a retry or the other format is logged as "Channel switch: 4.9 s (after a retry)" and kept out of the average.
+  - (2.9) **Honest timing**: a return to the channel already playing isn't timed (no stream opened). The time after the 300 ms settle wait is shown separately as "stream". A switch that needed a retry or the other format is kept out of the average.
+  - (3.1.1) Only the **new** stream's first picture ends the timing (a frame from the old stream during the settle wait used to log 0.1 s switches). A return to the channel already playing logs "Channel switch: already playing".
+  - (3.1.1) The log line splits the stream part where the player can tell (Google TV): "Channel switch: 4.6 s (stream 4.3 s · connect 0.2 · first byte 3.6 · first frame 0.5 · retries 1)". *connect* = opening the link to a connection being ready; *first byte* = to the provider's first answer; *first frame* = to the first picture. "retries N" appears only when there were retries. The desktop logs the stream part without the split.
+- **Decoder didn't start** (3.1.1): on `DECODER_INIT_FAILED` the player is stopped (which frees the video decoder) and the channel is opened once more after 300 ms; the log shows "Channel N: decoder didn't start (…); retrying in 0.3 s". A second failure shows the usual error.
 - **Live format** (2.9): links use the format from Settings → Playback → Live format (§14). Automatic uses what the provider reports at login.
 - **Too many connections** (2.9, HTTP 429/458/509): see §7.9.
 - **Playback fallback**: if a stream fails, try once with the other extension (`.m3u8` ↔ `.ts`). Skip this for login or connection-limit errors (HTTP 401, 403, 429, 458, 509), where it can't help. If it still fails, show the clear error message (§7.8) in the info bar.
@@ -224,6 +227,7 @@ Paused or behind live (§7.7):
 - **Never just sit there** (2.5.1): if a recording isn't playing 10 s after starting (a resumed live pause: 4 s, 2.9), log "stalled" with the player state and try the next format.
   - After the last format, go live with the toast "Couldn't play the recording (still buffering) — back to live", or "Couldn't resume (…) — back to live".
 - Pauses and resumes are logged ("Paused live on channel 4130 (catch-up)", "Resumed live … after 64 s", "Catch-up: timeshift .ts from 2 min ago …").
+  - (3.1.1) **Every** pause ends with a log line: "Resumed live on channel N after 64 s (from the recording)" when resume plays the recording, "Paused catch-up on channel N" / "Resumed catch-up on channel N after 12 s" while watching a recording, and "Pause ended on channel N after 9 s (changed channel)" or "(went live)" when the pause ends without Resume.
 - When a recording reaches its end, request the next part (or go live).
 - Changing channel or leaving drops the recording. Recordings don't create resume points or history entries.
 - **Recording link**: `{server}/timeshift/{user}/{pass}/{minutes}/{YYYY-MM-DD:HH-MM}/{stream_id}.ts`, or `{server}/streaming/timeshift.php?username=…&password=…&stream=…&start=…&duration=…` if Diagnostics' test found that format works.
@@ -494,6 +498,7 @@ The player screen always holds focus and handles every key itself. The stock Exo
   - The version ("Sparky IPTV 2.5 (build 15)"; the build appears once, fixed in 2.5), the device, memory used/max, and library counts.
   - **Catch-up**: "N channels · up to N days", or "not offered by your provider", or "checking at the next playlist update".
   - "Channel switch: average 2.4 s (last 10) · stream 2.1 s", once channels have been switched (2.9 adds the stream part).
+  - "Slow switches (over 4 s): 2 of last 20" (3.1.1), counting every timed switch including retried ones.
   - The live format test result, once run (2.9).
   - "Connection limit: no hits today", or "2 hits today (last 12:53)" (2.9).
   - "Pause without catch-up: longest that worked 3 s", or "no resumes yet" (2.9).
@@ -503,7 +508,7 @@ The player screen always holds focus and handles every key itself. The stock Exo
   - "Stream: none", or "open (playing / paused / buffering)" (2.6), so you can check that no stream is open after the sleep timer.
   - "Sleep timer: off", or "Sleep timer: 90 min · 42 min left" (2.6).
 - Buttons: **Test catch-up** (2.5) and **Test live formats** (2.9), then Refresh and Clear crash (only if there is one).
-  - Test live formats plays one channel (the last watched, else the first favourite channel, else the first channel) **3 times as m3u8 and 3 times as ts**, alternating, one stream at a time, and times each from opening the link to the player being ready. It reports "Live formats: m3u8 average 2.7 s · ts average 1.9 s".
+  - Test live formats plays one channel (the last watched, else the first favourite channel, else the first channel) once as m3u8 as an **uncounted warm-up** (3.1.1; the pill reads "Testing… warm-up", the log "Live format test: warm-up 2.8 s (not counted)"), then **3 times as m3u8 and 3 times as ts**, alternating, one stream at a time, and times each from opening the link to the player being ready. It reports "Live formats: m3u8 average 2.7 s · ts average 1.9 s".
   - If ts is **clearly faster** (at least 0.2 s on average, from at least 2 working tries), Live format is set to **ts** and the result adds "Live format set to ts" (Ashwin's choice, 2.9). Otherwise the setting is left alone.
   - The button shows "Testing… 3 of 6" while it runs.
   - Test catch-up asks the provider for a recording from about an hour ago on up to 3 catch-up channels (favourites first), trying **all three link formats** on each (2.5.1).
@@ -514,7 +519,9 @@ The player screen always holds focus and handles every key itself. The stock Exo
 - Right side: "Last crash" (if any, in red) and the **last 200 log lines, newest first**. Errors are accent, warnings amber. The lines are focusable so the remote can scroll them.
 - The phone page has a **Copy everything** button. On plain http it falls back to a hidden text box and the copy command; if that fails it selects all the text ("Text selected: tap Copy"). There is also a **Select all** button (2.5.1; before that Copy did nothing on phones).
 - The log is kept in memory and in a file. Memory keeps the newest 400 lines. The file is checked at start **and every 100 lines while running** (2.9); past 256 KB it keeps the newest 200 lines. Diagnostics and the phone page read **only the last 64 KB** of the file (2.9).
-  - (2.9) A date line is written at start and when the day changes: "— Sun 1 Nov 2026 —". Times stay HH:mm:ss.
+  - (2.9) A date line is written when the day changes: "— Sun 1 Nov 2026 —". Times stay HH:mm:ss. (3.1.1) A start on a day that already has entries in the file adds no second date line.
+  - (3.1.1) Every start logs "App started · <device>"; when Android had kept the app in memory, it reads "App started · <device> · restored" (before 3.1.1 that case logged nothing).
+  - (3.1.1) Sign-in logs what the server offers and what the links use: "Signed in · status Active · server offers m3u8 · live format ts".
   - (2.9) A message repeated more than 20 times in a minute is written 20 times; the next line after that minute adds "(repeated 57 more times in the last minute) <message>". Crashes are written to `last_crash.txt` by an uncaught-exception handler. **The password and username are replaced with •••** in every log line.
 - **Cancelled loads are not logged as errors** (2.5): coroutine cancellations and cancelled network calls (for example, a detail page closed before its data arrived) are dropped from the log.
 - The first daily refresh logs "Daily refresh: first update" (before 2.5 it printed the hours since 1970).

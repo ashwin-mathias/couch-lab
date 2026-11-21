@@ -45,7 +45,6 @@ import fi.iki.elonen.NanoHTTPD
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -145,19 +144,9 @@ class AppViewModel : ViewModel() {
                 loadSteps.add(LoadStep("Opening your saved channels", com.sparky.iptv.data.StepStatus.ACTIVE, "Reading…"))
                 loadFraction = 0.05f
             }
-            // 2.9: movies and series are read at the same time as the channels (on another core),
-            // instead of after Home appears, so they're ready about as soon as Home is.
+            // 3.1.1: movies and series are read after the channels again (as before 2.9). Reading them at
+            // the same time slowed Home down on the Chromecast (above 5 s on most first starts of the day).
             val t0 = System.currentTimeMillis()
-            val vodEarly = if (hasSaved && prefs.playlist?.type != "m3u") {
-                vodLoading = true
-                viewModelScope.async(Dispatchers.IO) {
-                    runCatching {
-                        repo.loadCachedVod(Library(emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList())) { msg ->
-                            viewModelScope.launch(Dispatchers.Main) { vodProgress = msg }
-                        }
-                    }
-                }
-            } else null
             // Step 1: live channels only, so Home opens within a few seconds.
             val cached = try {
                 repo.loadCachedLive { msg ->
@@ -178,7 +167,7 @@ class AppViewModel : ViewModel() {
                 if (prefs.playlist?.type != "m3u") {
                     vodLoading = true
                     try {
-                        val full = vodEarly?.await()?.getOrThrow() ?: repo.loadCachedVod(cached) { msg ->
+                        val full = repo.loadCachedVod(cached) { msg ->
                             viewModelScope.launch(Dispatchers.Main) { vodProgress = msg }
                         }
                         AppLog.i("Startup: movies and series in %.1f s".format((System.currentTimeMillis() - t0) / 1000.0))
@@ -199,9 +188,6 @@ class AppViewModel : ViewModel() {
                 }
                 maybeDailyRefresh()
             } else {
-                vodEarly?.cancel()
-                vodLoading = false
-                vodProgress = null
                 if (hasSaved) { loadSteps.clear(); loadSteps.addAll(repo.stepsFor(prefs.playlist)) }
                 try {
                     refreshing = true
@@ -1011,15 +997,50 @@ class AppViewModel : ViewModel() {
 
     // ---------- channel switch timing ----------
     // 2.9: the total from the key press, and the stream part (after the 300 ms settle wait).
+    // 3.1.1: the stream part split into connect, first byte and first frame where the player can tell,
+    // retries counted, and the last 20 totals kept for "slow switches".
     val switchTimes = mutableStateListOf<Long>()
     val switchStreamTimes = mutableStateListOf<Long>()
+    val recentSwitches = mutableStateListOf<Long>()
 
-    fun recordSwitch(ms: Long, streamMs: Long = ms) {
-        switchTimes.add(ms)
-        switchStreamTimes.add(streamMs)
-        while (switchTimes.size > 10) switchTimes.removeAt(0)
-        while (switchStreamTimes.size > 10) switchStreamTimes.removeAt(0)
-        AppLog.i("Channel switch: %.1f s (stream %.1f s)".format(ms / 1000.0, streamMs / 1000.0))
+    /**
+     * Logs one channel switch. [split] is (connect, first byte, first frame) in ms, or null.
+     * Switches that needed a retry are logged and counted as slow or not, but kept out of the average.
+     */
+    fun recordSwitch(ms: Long, streamMs: Long = ms, split: Triple<Long, Long, Long>? = null, retries: Int = 0) {
+        if (retries == 0) {
+            switchTimes.add(ms)
+            switchStreamTimes.add(streamMs)
+            while (switchTimes.size > 10) switchTimes.removeAt(0)
+            while (switchStreamTimes.size > 10) switchStreamTimes.removeAt(0)
+        }
+        recentSwitches.add(ms)
+        while (recentSwitches.size > 20) recentSwitches.removeAt(0)
+        AppLog.i(switchLine(ms, streamMs, split, retries))
+    }
+
+    /** A switch to the channel that was already playing (for example preview → full screen): not timed. */
+    fun recordAlreadyPlaying() = AppLog.i("Channel switch: already playing")
+
+    fun slowSwitchSummary(): String? {
+        val r = recentSwitches.toList()
+        if (r.isEmpty()) return null
+        return "Slow switches (over 4 s): ${r.count { it > 4_000 }} of last ${r.size}"
+    }
+
+    /** The log line, e.g. "Channel switch: 4.6 s (stream 4.3 s · connect 0.2 · first byte 3.6 · first frame 0.5)". */
+    companion object {
+        fun switchLine(ms: Long, streamMs: Long, split: Triple<Long, Long, Long>?, retries: Int): String {
+            fun s(v: Long) = "%.1f".format(v / 1000.0)
+            val parts = mutableListOf("stream ${s(streamMs)} s")
+            if (split != null) {
+                parts += "connect ${s(split.first)}"
+                parts += "first byte ${s(split.second)}"
+                parts += "first frame ${s(split.third)}"
+            }
+            if (retries > 0) parts += "retries $retries"
+            return "Channel switch: ${s(ms)} s (${parts.joinToString(" · ")})"
+        }
     }
 
     fun nowNext(chId: String, now: Long): Pair<EpgEntry?, EpgEntry?> {

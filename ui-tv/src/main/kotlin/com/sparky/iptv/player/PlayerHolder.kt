@@ -33,6 +33,12 @@ interface PlayerListener {
     fun onIsPlayingChanged(isPlaying: Boolean) {}
 }
 
+/**
+ * When the last stream's first connection was ready and its first response arrived (3.1.1), on the
+ * [com.sparky.iptv.ui.components.elapsedMs] clock; 0 = not yet. [openedAt] is when it was opened.
+ */
+data class StartTimings(val openedAt: Long, val connectedAt: Long, val firstByteAt: Long)
+
 /** One choosable audio or subtitle track; [ref] is the engine's own handle. */
 data class TrackOption(val label: String, val language: String?, val selected: Boolean, val ref: Any)
 
@@ -64,6 +70,8 @@ interface PlayerEngine {
     fun subtitlesShowing(): Boolean
     /** Clears choices from the previous stream; subtitles start off. */
     fun resetTracks()
+    /** How the last stream started, for the channel switch split (3.1.1); null where the player can't tell. */
+    fun startTimings(): StartTimings? = null
 }
 
 /**

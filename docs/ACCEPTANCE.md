@@ -202,6 +202,15 @@ Tick each box. Note the build number at the top of the run.
 - [ ] W11. Microsoft Store: `sparky-iptv-windows-x64.msix` uploads to Partner Center without package errors.
 - [ ] W12. The GitHub build's desktop smoke test passes (the app starts and libVLC loads).
 
+## L12. Startup, switch timing and log (3.1.1)
+- [ ] L12a. Three first-of-the-day starts: "Startup: Home in X s" is 5 s or less each time; movies and series follow a few seconds later.
+- [ ] L12b. Switch 20 channels: each line reads "Channel switch: X s (stream … · connect … · first byte … · first frame …)"; any over 4 s shows where the time went. Diagnostics shows "Slow switches (over 4 s): n of last 20".
+- [ ] L12c. Live TV preview → full screen on the same channel logs "Channel switch: already playing" and isn't in the average. No switch under 0.3 s is logged.
+- [ ] L12d. Two starts on one day: one date line; both starts log "App started" (the second may add "· restored").
+- [ ] L12e. Catch-up channel: pause, resume after 5 s → "Resumed live … after 5 s"; pause 20 s, resume → "… (from the recording)"; pause, then ▲ → "Pause ended … (changed channel)".
+- [ ] L12f. Diagnostics → Test live formats: the pill shows "Testing… warm-up" first; the log has one "warm-up … (not counted)" line and the averages use 3 tries each.
+- [ ] L12g. Sign-in line reads "Signed in · status Active · server offers m3u8 · live format ts".
+
 ## L11. Shared screens (3.1, no visible change on the TV)
 - [ ] L11a. The update installs 3.1 over 3.0 in place; login, favorites, folders and settings kept.
 - [ ] L11b. Quick pass of every screen, the player (live, pause, catch-up, a movie with subtitles), the subtitle style preview, and the setup / backup QR codes (they scan).
@@ -282,4 +291,9 @@ Tick each box. Note the build number at the top of the run.
 | R25 | 2.8 | A failed resume after a pause without catch-up waited 10 s before going live | L9i |
 | R26 | 2.8 | The update downloaded twice when Install was pressed again 11 s later | L9j |
 | R27 | 2.8 | The log file was trimmed only at app start, so it could grow without limit while the app stayed open for days | L9l |
+| R28 | 3.1 | Channel switches of 0.1–0.3 s were logged (a frame from the old stream), and the real switch went unlogged | L12c |
+| R29 | 3.1 | No "App started" when Android reopened the app in the same process; a date line on every start | L12d |
+| R30 | 3.1 | Resumes after a catch-up pause were not always logged | L12e |
+| R31 | 2.9 | Format test favoured ts: the first (m3u8) try paid one-off setup costs | L12f |
+| R32 | 3.1 | "Decoder init failed" on NEWSMAX (4 Nov, once) ended playback with no retry | Hard to reproduce; the log shows "decoder didn't start … retrying" if it happens again |
 | R15 | 2.4 | Vague "This channel isn't playing right now." with no reason | Play on 2 devices: the message names the code (509) and the fix |

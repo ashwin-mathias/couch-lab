@@ -10,7 +10,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 
 /**
- * Diagnostics → Test live formats (2.9). Plays one channel 3 times as m3u8 and 3 times as ts,
+ * Diagnostics → Test live formats (2.9). After one uncounted warm-up (3.1.1), plays one channel 3 times as m3u8 and 3 times as ts,
  * one stream at a time, and times each from opening the link to the player being ready.
  */
 object FormatTest {
@@ -27,6 +27,14 @@ object FormatTest {
         val ts = mutableListOf<Long>()
         var failures = 0
         AppLog.i("Live format test on channel ${ch.num} ${ch.display}")
+        // 3.1.1: one warm-up try that isn't counted. The first try also pays one-off costs (looking up the
+        // server's address, starting the player), which made the first format (always m3u8) look slower.
+        onProgress("Testing… warm-up")
+        val warm = once("$base.m3u8")
+        AppLog.i(if (warm != null && warm >= 0) "Live format test: warm-up %.1f s (not counted)".format(warm / 1000.0) else "Live format test: warm-up didn't play (not counted)")
+        PlayerHolder.stop()
+        PlayerHolder.closeIdleConnections()
+        delay(1_500)
         // Alternate the formats so a slow moment on the provider doesn't favour one of them.
         for (i in 0 until TRIES * 2) {
             val fmt = if (i % 2 == 0) "m3u8" else "ts"

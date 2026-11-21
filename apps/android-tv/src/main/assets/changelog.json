@@ -1,5 +1,16 @@
 [
   {
+    "version": "3.1.1",
+    "date": "2026-11-20",
+    "title": "Quicker start and a clearer log",
+    "notes": [
+      "Home opens sooner on the first start of the day: movies and series now load just after the channels.",
+      "If the picture can't start on a channel, Sparky tries once more by itself.",
+      "Diagnostics: the live format test does one warm-up try first, so the result is fairer, and slow channel switches are counted.",
+      "The log explains each channel switch (connecting, first data, first picture) and records every pause and resume."
+    ]
+  },
+  {
     "version": "3.1",
     "date": "2026-11-03",
     "title": "Sparky on Windows and Mac",

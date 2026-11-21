@@ -17,6 +17,11 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.sparky.iptv.data.USER_AGENT
+import com.sparky.iptv.ui.components.elapsedMs
+import okhttp3.Call
+import okhttp3.Connection
+import okhttp3.EventListener
+import okhttp3.Response
 import java.util.concurrent.TimeUnit
 
 /**
@@ -28,10 +33,17 @@ class ExoEngine(ctx: Context) : PlayerEngine {
     val exo: ExoPlayer
     private val adapters = HashMap<PlayerListener, Player.Listener>()
 
+    // ---------- start timings (3.1.1) ----------
+    @Volatile private var openGen = 0
+    @Volatile private var openedAt = 0L
+    @Volatile private var connectedAt = 0L
+    @Volatile private var firstByteAt = 0L
+
     init {
         val client = com.sparky.iptv.data.Http.base.newBuilder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
+            .eventListenerFactory { StartListener(openGen) }
             .build()
         val http = OkHttpDataSource.Factory(client).setUserAgent(USER_AGENT)
         val load = DefaultLoadControl.Builder()
@@ -74,7 +86,24 @@ class ExoEngine(ctx: Context) : PlayerEngine {
         adapters.remove(l)?.let { exo.removeListener(it) }
     }
 
+    /** Notes the first connection and first response of the stream opened as [gen]. */
+    private inner class StartListener(private val gen: Int) : EventListener() {
+        override fun connectionAcquired(call: Call, connection: Connection) {
+            if (gen == openGen && connectedAt == 0L) connectedAt = elapsedMs()
+        }
+        override fun responseHeadersEnd(call: Call, response: Response) {
+            if (gen == openGen && firstByteAt == 0L) firstByteAt = elapsedMs()
+        }
+    }
+
+    override fun startTimings(): StartTimings? =
+        if (openedAt == 0L) null else StartTimings(openedAt, connectedAt, firstByteAt)
+
     override fun setMedia(url: String, startMs: Long) {
+        openGen++
+        connectedAt = 0L
+        firstByteAt = 0L
+        openedAt = elapsedMs()
         val builder = MediaItem.Builder().setUri(url)
         if (url.substringBefore('?').lowercase().endsWith(".m3u8")) builder.setMimeType(MimeTypes.APPLICATION_M3U8)
         val item = builder.build()

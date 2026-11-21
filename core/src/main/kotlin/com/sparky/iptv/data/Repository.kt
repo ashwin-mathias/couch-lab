@@ -158,7 +158,8 @@ class Repository(
             StreamUrls.set(p, prefs.effectiveLiveFormat)
             applyCatchupSettings()
             listener.update(0, StepStatus.DONE, acct.status ?: "Signed in")
-            AppLog.i("Signed in · status ${acct.status} · format ${acct.liveFormat}")
+            // 3.1.1: say which format the links actually use, not only what the server offers.
+            AppLog.i("Signed in · status ${acct.status} · server offers ${acct.liveFormat} · live format ${prefs.effectiveLiveFormat}")
         } catch (e: Exception) {
             listener.update(0, StepStatus.FAILED, e.message ?: "Couldn't sign in")
             AppLog.e("Sign-in failed", e)
